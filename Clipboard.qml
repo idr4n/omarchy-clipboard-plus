@@ -2,7 +2,6 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
-import QtQuick.Effects
 import qs.Commons
 import qs.Ui
 import "ClipboardHistory.js" as ClipboardHistory
@@ -1069,8 +1068,8 @@ Item {
                       width: Math.min(parent.height, Style.space(42))
                       height: width
                       radius: Math.max(Style.space(5), root.cornerRadius)
-                      color: thumbnail.status === Image.Ready ? "transparent" : Util.alpha(row.contentColor, 0.055)
-                      border.width: thumbnail.status === Image.Ready ? 0 : Style.normalBorderWidth
+                      color: Util.alpha(row.contentColor, 0.055)
+                      border.width: Style.normalBorderWidth
                       border.color: Util.alpha(row.contentColor, 0.12)
 
                       OpticalGlyph {
@@ -1083,25 +1082,10 @@ Item {
                         opacity: 0.8
                       }
 
-                      Item {
-                        id: thumbnailMask
-                        anchors.fill: parent
-                        visible: false
-                        layer.enabled: thumbnail.status === Image.Ready
-
-                        Rectangle {
-                          anchors.centerIn: parent
-                          width: thumbnail.paintedWidth
-                          height: thumbnail.paintedHeight
-                          radius: typeFrame.radius
-                          color: "white"
-                          antialiasing: true
-                        }
-                      }
-
                       Image {
                         id: thumbnail
                         anchors.fill: parent
+                        anchors.margins: Style.space(3)
                         visible: status === Image.Ready
                         source: row.colorHex.length === 0 ? row.previewImage : ""
                         sourceSize.width: Math.max(1, width)
@@ -1109,14 +1093,6 @@ Item {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         smooth: true
-                        layer.enabled: status === Image.Ready
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                          maskEnabled: true
-                          maskSource: thumbnailMask
-                          maskThresholdMin: 0.3
-                          maskSpreadAtMin: 0.3
-                        }
                       }
 
                       ColorSwatch {

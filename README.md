@@ -25,8 +25,8 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 ## Row details
 
 The result list and preview have equal width without changing the overlay's outer
-dimensions. Type icons and small color swatches have rounded frames; image
-thumbnails have matching rounded corners without a frame, retain their aspect
+dimensions. Type icons, small color swatches, and image thumbnails share rounded
+frames. Images keep their original corners with a small inset, retain their aspect
 ratio, and keep the same text alignment.
 
 Subtitles show full word/line counts for retained text and colors, file counts
