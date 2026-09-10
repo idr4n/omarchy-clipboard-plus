@@ -60,8 +60,17 @@ Item {
   property int headerHeight: Math.max(Style.space(38), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int footerHeight: Math.max(Style.space(28), Style.font.caption + Style.spacing.controlPaddingY)
   property int cardWidth: Math.min(Style.space(940), panel.width - Style.gapsOut * 2)
-  property int cardHeight: Math.min(Style.space(640), panel.height - Style.gapsOut * 2)
+  property real cardHeight: root.fullRowCapacity > 0
+    ? Math.min(root.cardHeightLimit, root.listChromeHeight
+      + root.fullRowCapacity * (root.rowHeight + resultList.spacing) - resultList.spacing)
+    : root.cardHeightLimit
   property int rowHeight: Math.max(Style.space(64), Style.font.title + Style.font.caption + Style.space(24))
+  // Fit the viewport to whole rows without tying its height to results or scroll position.
+  readonly property real cardHeightLimit: Math.max(0, Math.min(Style.space(640), panel.height - Style.gapsOut * 2))
+  readonly property real listChromeHeight: card.contentTopInset + card.contentBottomInset
+    + root.headerHeight + filterBar.height + root.footerHeight + root.contentSpacing * 3
+  readonly property int fullRowCapacity: Math.max(0, Math.floor(
+    (root.cardHeightLimit - root.listChromeHeight + resultList.spacing) / (root.rowHeight + resultList.spacing)))
   readonly property int historyLimit: ClipboardHistory.maxHistoryEntries
   property int displayLimit: 60
 
@@ -1006,7 +1015,7 @@ Item {
 
         Item {
           width: parent.width
-          height: parent.height - root.headerHeight - filterBar.height - root.footerHeight - root.contentSpacing * 3
+          height: Math.max(0, parent.height - root.headerHeight - filterBar.height - root.footerHeight - root.contentSpacing * 3)
 
           Row {
             anchors.fill: parent

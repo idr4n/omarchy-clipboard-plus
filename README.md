@@ -24,10 +24,19 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 
 ## Row details
 
-The result list and preview have equal width without changing the overlay's outer
-dimensions. Type icons, small color swatches, and image thumbnails share rounded
-frames. Images keep their original corners with a small inset, retain their aspect
-ratio, and keep the same text alignment.
+The result list and preview keep equal width, and the overlay retains its original
+width. Height fits the largest complete row count under the theme-scaled 640-pixel
+ceiling and available logical screen height, including the actual controls,
+padding, borders, and row gaps. Queries, result counts, and scrolling do not resize
+the popup. If even one row plus its controls cannot fit, the screen-height cap wins.
+
+Smooth wheel/touchpad scrolling is unchanged, without row stepping or snapping.
+The viewport fits whole rows, but partial rows can still appear at intermediate
+scroll offsets.
+
+Type icons, small color swatches, and image thumbnails share rounded frames.
+Images keep their original corners with a small inset, retain their aspect ratio,
+and keep the same text alignment.
 List color swatches rely on the shared frame rather than a separate colored outline.
 
 Subtitles show full word/line counts for retained text and colors, file counts
