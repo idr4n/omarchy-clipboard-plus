@@ -39,15 +39,142 @@ function utf8ByteLength(value) {
   return bytes
 }
 
-function detectColor(text) {
-  var match = String(text || "").trim().match(/^#?([0-9a-fA-F]{6})$/)
-  return match ? "#" + match[1].toUpperCase() : ""
+var colorNumberPattern = "[+-]?(?:\\d*\\.\\d+|\\d+)(?:e[+-]?\\d+)?"
+var colorComponentPattern = new RegExp("^(" + colorNumberPattern + ")(%?)$", "i")
+var colorHuePattern = new RegExp("^(" + colorNumberPattern + ")(deg|rad|grad|turn)?$", "i")
+
+function colorComponent(token, scale, percentOnly) {
+  var match = token.match(colorComponentPattern)
+  if (!match || (percentOnly && !match[2])) return NaN
+  var value = Number(match[1])
+  var maximum = match[2] ? 100 : scale
+  if (!isFinite(value) || value < 0 || value > maximum) return NaN
+  return value / maximum
 }
 
-function normalizeStoredColor(value, text) {
-  var color = String(value || "")
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) return color.toUpperCase()
-  return detectColor(text)
+function parseColor(text) {
+  var value = String(text || "").trim()
+  var hex = value.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
+    || value.match(/^([0-9a-f]{6})$/i)
+  if (hex) {
+    var digits = hex[1]
+    if (digits.length <= 4) {
+      var expanded = ""
+      for (var i = 0; i < digits.length; i++) expanded += digits.charAt(i) + digits.charAt(i)
+      digits = expanded
+    }
+    return {
+      red: parseInt(digits.slice(0, 2), 16) / 255,
+      green: parseInt(digits.slice(2, 4), 16) / 255,
+      blue: parseInt(digits.slice(4, 6), 16) / 255,
+      alpha: digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1
+    }
+  }
+
+  var call = value.match(/^(rgba?|hsla?)\(([^()]*)\)$/i)
+  if (!call) return null
+  var rgb = call[1].toLowerCase().indexOf("rgb") === 0
+  var body = call[2].trim()
+  var legacy = body.indexOf(",") >= 0
+  var channels
+  var alphaToken
+  if (legacy) {
+    if (body.indexOf("/") >= 0) return null
+    channels = body.split(",")
+    if (channels.length !== 3 && channels.length !== 4) return null
+    for (var j = 0; j < channels.length; j++) channels[j] = channels[j].trim()
+    if (channels.length === 4) alphaToken = channels.pop()
+    if (rgb) {
+      var percentages = channels[0].indexOf("%") >= 0
+      if ((channels[1].indexOf("%") >= 0) !== percentages
+          || (channels[2].indexOf("%") >= 0) !== percentages) return null
+    }
+  } else {
+    var slash = body.split("/")
+    if (slash.length > 2) return null
+    channels = slash[0].trim().split(/\s+/)
+    if (channels.length !== 3) return null
+    if (slash.length === 2) alphaToken = slash[1].trim()
+  }
+
+  var alpha = alphaToken === undefined ? 1 : colorComponent(alphaToken, 1, false)
+  if (isNaN(alpha)) return null
+  if (rgb) {
+    var red = colorComponent(channels[0], 255, false)
+    var green = colorComponent(channels[1], 255, false)
+    var blue = colorComponent(channels[2], 255, false)
+    if (isNaN(red) || isNaN(green) || isNaN(blue)) return null
+    return { red: red, green: green, blue: blue, alpha: alpha }
+  }
+
+  var hueMatch = channels[0].match(colorHuePattern)
+  var saturation = colorComponent(channels[1], 100, true)
+  var lightness = colorComponent(channels[2], 100, true)
+  if (!hueMatch || isNaN(saturation) || isNaN(lightness)) return null
+  var hue = Number(hueMatch[1])
+  if (!isFinite(hue)) return null
+  var unit = String(hueMatch[2] || "deg").toLowerCase()
+  var period = unit === "turn" ? 1 : unit === "rad" ? Math.PI * 2 : unit === "grad" ? 400 : 360
+  // Reduce before scaling so a finite, very large hue cannot overflow.
+  hue = ((hue % period) + period) % period / period * 6
+  var chroma = 2 * Math.min(lightness, 1 - lightness) * saturation
+  var secondary = chroma * (1 - Math.abs(hue % 2 - 1))
+  var offset = lightness - chroma / 2
+  var sector = Math.floor(hue)
+  return {
+    red: offset + (sector === 0 || sector === 5 ? chroma : sector === 1 || sector === 4 ? secondary : 0),
+    green: offset + (sector === 1 || sector === 2 ? chroma : sector === 0 || sector === 3 ? secondary : 0),
+    blue: offset + (sector === 3 || sector === 4 ? chroma : sector === 2 || sector === 5 ? secondary : 0),
+    alpha: alpha
+  }
+}
+
+function colorHex(color) {
+  var result = "#"
+  var channels = [color.red, color.green, color.blue]
+  if (color.alpha < 1) channels.push(color.alpha)
+  for (var i = 0; i < channels.length; i++) {
+    var byte = Math.round(channels[i] * 255).toString(16).toUpperCase()
+    result += byte.length < 2 ? "0" + byte : byte
+  }
+  return result
+}
+
+function detectColor(text) {
+  var color = parseColor(text)
+  return color ? colorHex(color) : ""
+}
+
+function colorNumber(value) {
+  return String(Number(value.toPrecision(6)))
+}
+
+function colorDetails(text) {
+  var color = parseColor(text)
+  if (!color) return null
+  var maximum = Math.max(color.red, color.green, color.blue)
+  var minimum = Math.min(color.red, color.green, color.blue)
+  var delta = maximum - minimum
+  var lightness = (maximum + minimum) / 2
+  var saturation = delta === 0 ? 0 : delta / (lightness <= 0.5
+    ? maximum + minimum : (1 - maximum) + (1 - minimum))
+  var hue = 0
+  if (delta !== 0) {
+    if (maximum === color.red) hue = (color.green - color.blue) / delta
+    else if (maximum === color.green) hue = (color.blue - color.red) / delta + 2
+    else hue = (color.red - color.green) / delta + 4
+    hue = ((hue * 60) + 360) % 360
+  }
+  var translucent = color.alpha < 1
+  var alpha = translucent ? ", " + colorNumber(color.alpha) : ""
+  color.hex = colorHex(color)
+  color.rgb = (translucent ? "rgba(" : "rgb(")
+    + colorNumber(color.red * 255) + ", " + colorNumber(color.green * 255) + ", "
+    + colorNumber(color.blue * 255) + alpha + ")"
+  color.hsl = (translucent ? "hsla(" : "hsl(")
+    + colorNumber(hue) + ", " + colorNumber(saturation * 100) + "%, "
+    + colorNumber(lightness * 100) + "%" + alpha + ")"
+  return color
 }
 
 function oversizedTextResult(length, preserveOversized) {
@@ -107,7 +234,7 @@ function checkedEntry(value, preserveOversized, acceptPlaceholder) {
       return { status: "invalid", entry: null, textLength: 0, containsOversized: false }
     return {
       status: "ok",
-      entry: { type: "text", text: text, color: normalizeStoredColor(value.color, text) },
+      entry: { type: "text", text: text, color: detectColor(text) },
       textLength: text.length,
       containsOversized: false
     }
@@ -444,6 +571,7 @@ function displayRows(history, query, limit, typeFilter) {
       previewText: previewText(entry),
       previewImage: previewPath,
       color: color,
+      colorDetails: color ? colorDetails(normalized.text) : null,
       path: isImage ? String(entry.path || "") : (isFile && paths.length === 1 ? paths[0] : ""),
       mime: isImage ? String(entry.mime || "image/png") : "text/plain",
       index: i
@@ -491,6 +619,7 @@ if (typeof module !== "undefined") {
     maxCapturedAtLength: maxCapturedAtLength,
     utf8ByteLength: utf8ByteLength,
     detectColor: detectColor,
+    colorDetails: colorDetails,
     parseHistory: parseHistory,
     validateHistory: validateHistory,
     addEntry: addEntry,

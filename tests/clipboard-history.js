@@ -17,7 +17,91 @@ assert.equal(history.utf8ByteLength("\ud800"), 3);
 assert.equal(history.detectColor("#a954f4"), "#A954F4");
 assert.equal(history.detectColor(" 3bd671 "), "#3BD671");
 assert.equal(history.detectColor("color #a954f4"), "");
-assert.equal(history.detectColor("#abcd"), "");
+assert.equal(history.detectColor("#abcd"), "#AABBCCDD");
+assert.equal(history.detectColor("#abc"), "#AABBCC");
+assert.equal(history.detectColor("#123f"), "#112233");
+
+// Each expression exercises a distinct CSS syntax or conversion boundary.
+for (const [expression, expected] of [
+  ["RGB(122, 162, 247)", "#7AA2F7"],
+  ["rgba(100%, 0%, 0%, 50%)", "#FF000080"],
+  ["rgb(100% 0 0 / .5)", "#FF000080"],
+  ["rgba(255 0 0)", "#FF0000"],
+  ["rgb(1e2 0 0)", "#640000"],
+  ["hsl(120, 100%, 50%)", "#00FF00"],
+  ["hsla(.5turn 100% 50% / 25%)", "#00FFFF40"],
+  ["hsl(-100grad 100% 50%)", "#8000FF"],
+  [`hsl(${Math.PI}rad 100% 50%)`, "#00FFFF"],
+  ["hsl(720deg 100% 50%)", "#FF0000"],
+  ["hsl(1e308deg 0% 100%)", "#FFFFFF"],
+  ["rgba(255, 0, 0, 0)", "#FF000000"],
+]) {
+  assert.equal(history.detectColor(expression), expected, expression);
+}
+
+const alphaLast = history.colorDetails("#10203080");
+assert.deepEqual(
+  [alphaLast.red, alphaLast.green, alphaLast.blue, alphaLast.alpha],
+  [16 / 255, 32 / 255, 48 / 255, 128 / 255],
+);
+assert.equal(history.colorDetails("rgba(255 0 0 / .5)").alpha, 0.5);
+
+// Converted display expressions must still describe the same color, including
+// near-black/near-white values where naive HSL division loses precision.
+for (const expression of [
+  "#7aa2f780",
+  "rgba(12.5, 27.25, 200.5, .125)",
+  "hsl(0 100% 1%)",
+  "rgb(255 254.99999999999997 255)",
+  "#000",
+  "#fff",
+  "rgba(0, 0, 0, 0)",
+]) {
+  const details = history.colorDetails(expression);
+  for (const rendered of [details.rgb, details.hsl]) {
+    const converted = history.colorDetails(rendered);
+    assert.ok(converted, `invalid color preview: ${rendered}`);
+    for (const channel of ["red", "green", "blue", "alpha"]) {
+      assert.ok(
+        Math.abs(converted[channel] - details[channel]) < 1 / 255,
+        `${expression} changed ${channel} in ${rendered}`,
+      );
+    }
+  }
+}
+
+for (const invalid of [
+  "#12", "#12345", "#1234567", "abc", "abcd", "12345678",
+  "color: #abc", "use rgb(1,2,3) here",
+  "rgb(256,0,0)", "rgb(-1 0 0)", "rgb(101% 0% 0%)",
+  "rgba(0,0,0,2)", "rgb(0 0 0 / -1%)", "rgb(0 0 0 / 101%)",
+  "rgb(1, 2 3)", "rgb(1,2,3 / .5)", "rgb(1,2,3,)", "rgb(1 2 3 /)",
+  "rgb(1 2 3 / .5 / .5)", "rgb(1, 2%, 3)",
+  "hsl(0 1 50%)", "hsl(0 101% 50%)", "hsl(0 50% -1%)",
+  "hsl(10% 50% 50%)", "rgb(NaN 0 0)", "rgb(1e309 0 0)",
+  "hsl(1e309deg 50% 50%)", "rgb(0x10 0 0)",
+]) {
+  assert.equal(history.detectColor(invalid), "", invalid);
+  assert.equal(history.colorDetails(invalid), null, invalid);
+}
+
+const colorExpression = " \tRgBa(100%, 0%, 0%, 50%)\n";
+const colorHistory = parsedEntries([
+  "ordinary text",
+  colorExpression,
+  { type: "text", text: "not a color", color: "#FF0000" },
+]);
+const colorRows = history.displayRows(colorHistory, "", 50, "colors");
+assert.deepEqual(colorRows.map((row) => row.index), [1]);
+assert.equal(colorRows[0].colorDetails.alpha, 0.5);
+assert.equal(history.entryText(colorHistory, colorRows[0].index), colorExpression);
+const savedColors = JSON.parse(history.serializeHistory(colorHistory).text);
+assert.deepEqual(savedColors[1], { type: "text", text: colorExpression });
+assert.deepEqual(
+  history.displayRows(history.parseHistory(JSON.stringify(savedColors)).entries, "", 50, "colors")
+    .map((row) => row.index),
+  [1],
+);
 
 const entries = parsedEntries([
   { type: "text", text: "#a954f4" },
@@ -26,7 +110,6 @@ const entries = parsedEntries([
   { type: "text", text: "file:///tmp/file.txt" },
 ]);
 
-assert.equal(entries[0].color, "#A954F4");
 assert.deepEqual(
   history.displayRows(entries, "", 50, "colors").map((row) => row.entryType),
   ["color"],
@@ -91,7 +174,6 @@ const serialized = history.serializeHistory(entries, 50, 1);
 assert.equal(serialized.status, "ok");
 const stored = JSON.parse(serialized.text);
 assert.deepEqual(stored[0], { type: "text", text: "#a954f4" });
-assert.equal(Object.hasOwn(stored[0], "color"), false);
 assert.deepEqual(stored[2], {
   type: "image",
   path: "/tmp/example.png",

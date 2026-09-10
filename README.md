@@ -14,11 +14,31 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 
 - Search clipboard history by typing
 - Navigate with the arrow keys or `Ctrl+J` / `Ctrl+K`
-- Filter all entries, text, images, or six-digit hexadecimal colors
+- Filter all entries, text, images, or detected CSS colors
 - Preview long text, images, and detected colors without leaving the overlay
 - Edit text before copying or pasting it
 - Paste, copy, open, remove, or clear history entries from the keyboard
 - Follow the active Omarchy theme through the shell's shared UI components
+
+## Color formats
+
+The Colors filter recognizes whole color values, including:
+
+- `#RGB`, `#RGBA`, `#RRGGBB`, and `#RRGGBBAA` (CSS alpha-last order);
+- six-digit hex without `#`, for compatibility;
+- `rgb()` / `rgba()` with numeric or percentage channels, comma notation, or
+  modern space/slash notation such as `rgb(100% 0% 0% / 50%)`; and
+- `hsl()` / `hsla()` with percentage saturation/lightness and degree, radian,
+  gradian, or turn hues, such as `hsla(.5turn 100% 50% / 25%)`.
+
+Compact and expanded color previews show normalized hex, RGB(A), and HSL(A)
+values. Transparent colors render over a checkerboard. Copying, pasting, and
+editing preserve the original expression rather than using the normalized label.
+
+Malformed values, out-of-range components, and color expressions embedded in
+prose remain text. Named colors, CSS variables, and advanced color spaces such
+as `oklch()` are not recognized. Legacy comma-separated RGB channels must be
+all numeric or all percentages; modern space notation permits mixed channels.
 
 ## Requirements
 

@@ -40,7 +40,7 @@ Item {
   property string expandedKind: ""
   property string expandedText: ""
   property string expandedImage: ""
-  property string expandedColor: ""
+  property var expandedColor: null
   property bool expandedTruncated: false
   property int expandedTotalLength: 0
 
@@ -65,6 +65,105 @@ Item {
   property int displayLimit: 60
 
   readonly property var typeFilters: ["all", "text", "images", "colors"]
+
+  component ColorSwatch: Item {
+    id: swatch
+    property color value: "transparent"
+    property real cornerRadius: root.cornerRadius
+    readonly property color checkerLight: Qt.rgba(root.background.r, root.background.g, root.background.b, 1)
+    readonly property color checkerDark: Qt.tint(checkerLight, Util.alpha(root.foreground, 0.25))
+
+    Canvas {
+      id: checker
+      anchors.fill: parent
+      visible: swatch.value.a < 1
+      onVisibleChanged: if (visible) requestPaint()
+      onWidthChanged: requestPaint()
+      onHeightChanged: requestPaint()
+      Connections {
+        target: swatch
+        function onCheckerLightChanged() { checker.requestPaint() }
+        function onCheckerDarkChanged() { checker.requestPaint() }
+        function onCornerRadiusChanged() { checker.requestPaint() }
+      }
+      onPaint: {
+        var context = getContext("2d")
+        context.clearRect(0, 0, width, height)
+        var radius = Math.min(swatch.cornerRadius, width / 2, height / 2)
+        context.save()
+        context.beginPath()
+        context.moveTo(radius, 0)
+        context.lineTo(width - radius, 0)
+        context.quadraticCurveTo(width, 0, width, radius)
+        context.lineTo(width, height - radius)
+        context.quadraticCurveTo(width, height, width - radius, height)
+        context.lineTo(radius, height)
+        context.quadraticCurveTo(0, height, 0, height - radius)
+        context.lineTo(0, radius)
+        context.quadraticCurveTo(0, 0, radius, 0)
+        context.closePath()
+        context.clip()
+        context.fillStyle = swatch.checkerLight
+        context.fillRect(0, 0, width, height)
+        context.fillStyle = swatch.checkerDark
+        var cell = Math.max(4, Style.space(10))
+        for (var y = 0; y < height; y += cell) {
+          for (var x = 0; x < width; x += cell) {
+            if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2)
+              context.fillRect(x, y, cell, cell)
+          }
+        }
+        context.restore()
+      }
+    }
+
+    Rectangle {
+      anchors.fill: parent
+      radius: swatch.cornerRadius
+      color: swatch.value
+      border.width: Style.normalBorderWidth
+      border.color: root.border
+    }
+  }
+
+  component ColorPreview: Column {
+    property var value: null
+    property real swatchSize: Style.space(170)
+    property real hexFontSize: Style.font.heading
+    spacing: Style.space(12)
+
+    ColorSwatch {
+      anchors.horizontalCenter: parent.horizontalCenter
+      width: parent.swatchSize
+      height: width
+      value: parent.value ? parent.value.swatchColor : "transparent"
+    }
+    Text {
+      anchors.horizontalCenter: parent.horizontalCenter
+      text: parent.value ? parent.value.colorHex : ""
+      textFormat: Text.PlainText
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: parent.hexFontSize
+      font.bold: true
+    }
+    Text {
+      anchors.horizontalCenter: parent.horizontalCenter
+      text: parent.value ? parent.value.colorRgb : ""
+      textFormat: Text.PlainText
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+    Text {
+      anchors.horizontalCenter: parent.horizontalCenter
+      text: parent.value ? parent.value.colorHsl : ""
+      textFormat: Text.PlainText
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+  }
 
   function open(payloadJson) {
     root.cancelEditedHistoryAction()
@@ -320,12 +419,16 @@ Item {
     displayModel.clear()
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i]
+      var color = row.colorDetails
       displayModel.append({
         entryType: row.entryType,
         fullText: row.fullText,
         previewText: row.previewText,
         previewImage: row.previewImage ? Util.fileUrl(row.previewImage) : "",
-        swatchColor: row.color || "",
+        swatchColor: color ? Qt.rgba(color.red, color.green, color.blue, color.alpha) : Qt.rgba(0, 0, 0, 0),
+        colorHex: color ? color.hex : "",
+        colorRgb: color ? color.rgb : "",
+        colorHsl: color ? color.hsl : "",
         path: row.path,
         mime: row.mime,
         historyIndex: row.index
@@ -450,9 +553,14 @@ Item {
       return
     }
 
-    root.expandedKind = row.swatchColor ? "color" : (row.previewImage ? "image" : "text")
+    root.expandedKind = row.colorHex ? "color" : (row.previewImage ? "image" : "text")
     root.expandedImage = row.previewImage || ""
-    root.expandedColor = row.swatchColor || ""
+    root.expandedColor = row.colorHex ? {
+      swatchColor: row.swatchColor,
+      colorHex: row.colorHex,
+      colorRgb: row.colorRgb,
+      colorHsl: row.colorHsl
+    } : null
     root.expandedText = ""
     root.expandedTruncated = false
     root.expandedTotalLength = 0
@@ -877,7 +985,8 @@ Item {
                   required property string previewText
                   required property string fullText
                   required property string previewImage
-                  required property string swatchColor
+                  required property color swatchColor
+                  required property string colorHex
 
                   readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
 
@@ -894,18 +1003,16 @@ Item {
                     anchors.bottomMargin: Style.space(8)
                     spacing: Style.space(10)
 
-                    Rectangle {
-                      visible: row.swatchColor.length > 0
+                    ColorSwatch {
+                      visible: row.colorHex.length > 0
                       width: visible ? parent.height : 0
                       height: parent.height
-                      radius: Math.max(Style.space(4), height * 0.22)
-                      color: row.swatchColor || "transparent"
-                      border.width: visible ? Style.normalBorderWidth : 0
-                      border.color: root.border
+                      cornerRadius: Math.max(Style.space(4), height * 0.22)
+                      value: row.swatchColor
                     }
 
                     Image {
-                      visible: row.swatchColor.length === 0 && row.previewImage.length > 0
+                      visible: row.colorHex.length === 0 && row.previewImage.length > 0
                       width: visible ? parent.height : 0
                       height: parent.height
                       source: row.previewImage
@@ -917,7 +1024,7 @@ Item {
                     }
 
                     Text {
-                      width: parent.width - ((row.swatchColor.length > 0 || row.previewImage.length > 0) ? parent.height + parent.spacing : 0)
+                      width: parent.width - ((row.colorHex.length > 0 || row.previewImage.length > 0) ? parent.height + parent.spacing : 0)
                       height: parent.height
                       text: row.previewText
                       color: row.hasCursor ? root.selectedText : root.foreground
@@ -964,7 +1071,7 @@ Item {
 
               Flickable {
                 id: compactTextScroll
-                visible: previewPane.activeRow && !previewPane.activeRow.previewImage && !previewPane.activeRow.swatchColor
+                visible: previewPane.activeRow && !previewPane.activeRow.previewImage && !previewPane.activeRow.colorHex
                 anchors.fill: parent
                 anchors.leftMargin: root.contentMargin
                 clip: true
@@ -996,30 +1103,10 @@ Item {
                 smooth: true
               }
 
-              Column {
-                visible: previewPane.activeRow && previewPane.activeRow.swatchColor
+              ColorPreview {
+                visible: previewPane.activeRow && previewPane.activeRow.colorHex.length > 0
                 anchors.centerIn: parent
-                spacing: Style.space(16)
-
-                Rectangle {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  width: Style.space(170)
-                  height: width
-                  radius: root.cornerRadius
-                  color: previewPane.activeRow ? previewPane.activeRow.swatchColor : "transparent"
-                  border.width: Style.normalBorderWidth
-                  border.color: root.border
-                }
-
-                Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  text: previewPane.activeRow ? previewPane.activeRow.swatchColor : ""
-                  textFormat: Text.PlainText
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
-                  font.bold: true
-                }
+                value: previewPane.activeRow
               }
             }
           }
@@ -1113,30 +1200,12 @@ Item {
           smooth: true
         }
 
-        Column {
+        ColorPreview {
           visible: root.expandedKind === "color"
           anchors.centerIn: parent
-          spacing: Style.space(20)
-
-          Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: Math.min(Style.space(320), expandedView.width * 0.55)
-            height: width
-            radius: root.cornerRadius
-            color: root.expandedColor || "transparent"
-            border.width: Style.normalBorderWidth
-            border.color: root.border
-          }
-
-          Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: root.expandedColor
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.display
-            font.bold: true
-          }
+          value: root.expandedColor
+          swatchSize: Math.min(Style.space(320), expandedView.width * 0.55)
+          hexFontSize: Style.font.display
         }
 
         Flickable {

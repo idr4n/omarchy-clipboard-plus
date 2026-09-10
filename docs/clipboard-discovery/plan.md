@@ -1,6 +1,6 @@
 # Clipboard discovery implementation plan
 
-Status: planned; no implementation tasks completed.
+Status: in progress; Task 1 is complete, Tasks 2–6 are pending.
 Last updated: 2026-09-10
 Local branch: `feat/clipboard-discovery`
 Contract: [spec.md](spec.md)
@@ -82,8 +82,15 @@ Fixture corpus:
 
 ## Task 1: Extend color detection and alpha-safe previews
 
+Completed 2026-09-10. Model tests, QML lint, and local manifest validation pass.
+An independent 1,200-case HSL conversion probe passed. An isolated Quickshell
+harness visually verified compact/expanded previews and 0/50/100% alpha.
+The editor-to-packaged-copy-helper path preserved a synthetic expression
+byte-for-byte with `wl-copy` redirected to a temporary file transport; the system
+clipboard and installed plugin were not changed.
+
 **Context:** The existing Colors filter and swatch already provide a complete
-surface for this change. `detectColor` currently accepts only six-digit hex.
+surface for this change. At planning time, `detectColor` accepted only six-digit hex.
 
 **Acceptance criteria**
 

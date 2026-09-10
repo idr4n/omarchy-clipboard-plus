@@ -1,6 +1,6 @@
 # Clipboard discovery and presentation
 
-Status: planned; implementation has not started.
+Status: in progress; expanded color support is implemented, remaining feature work is planned.
 Last updated: 2026-09-10
 Branch: `feat/clipboard-discovery`
 
