@@ -1,6 +1,6 @@
 # Clipboard discovery implementation plan
 
-Status: in progress; Task 1 is complete, Tasks 2–6 are pending.
+Status: in progress; Task 1 and current-type presentation from Task 5 are complete. Tasks 2–4 and 6 remain pending.
 Last updated: 2026-09-10
 Local branch: `feat/clipboard-discovery`
 Contract: [spec.md](spec.md)
@@ -11,8 +11,8 @@ This plan implements the discovery/presentation improvements from the comparison
 including broader color formats. It does not replace Omarchy's capture backend.
 
 - Work stays local on this feature branch. No push, merge to `main`, marketplace
-  request/workflow, version bump, or installed-plugin update without separate
-  explicit authorization. A local planning commit is not a release.
+  request/workflow, or version bump without separate explicit authorization.
+  Local development installation and refresh are now explicitly authorized.
 - Preserve the stock history file/schema and packaged history-index helpers.
 - Add no runtime dependencies, watcher, persistent service, or automatic network
   access. Keep all current history, image, and text-rendering safety boundaries.
@@ -23,7 +23,7 @@ including broader color formats. It does not replace Omarchy's capture backend.
 
 - `ClipboardHistory.js`: validation, color detection, file URI recognition,
   bounded search, display rows, serialization, and stable history indices.
-- `Clipboard.qml`: type filters, keyboard actions, single-line rows, split previews,
+- `Clipboard.qml`: type filters, keyboard actions, result rows, split previews,
   expanded view/editor, bounded reader, and confirmed writes.
 - `tests/clipboard-history.js`: existing model regression suite.
 - `README.md`: user-facing controls, capabilities, safety limits, verification.
@@ -54,8 +54,9 @@ under a fresh temporary directory with:
 
 Launch the resulting harness with `quickshell --path "$smoke/shell.qml"` through
 the harness process supervisor. Interact with it and capture visual evidence.
-Stop only that temporary process afterward. Do not deploy to the live plugin,
-restart the production shell, or run upstream screenshot scripts that seed history.
+Stop only that temporary process afterward. Refresh the authorized local test
+installation only after verification; do not restart the production shell or seed
+personal history with upstream screenshot scripts.
 For action verification, use only synthetic content and a disposable target;
 never paste, delete, or clear personal history. Any actual clipboard replacement
 must be confined to an explicitly authorized smoke session.
@@ -67,7 +68,7 @@ Fixture corpus:
 - Link: `https://example.com/docs/clipboard`; bare domain: `example.com/docs`.
 - JSON: `{"project":"clipboard","values":[1,2]}`; invalid JSON: `{"project":}`.
 - Code: `function pasteEntry(id) {\n  return id;\n}`.
-- Colors: `#7aa2f7`, `7aa2f7`, `#abc`, `#abcd`, `#7aa2f780`,
+- Colors: `#7aa2f7`, `7aa2f7`, `#abc`, `#abcd`, `#7aa2f780`, `7aa2f780`,
   `rgb(122, 162, 247)`, `rgba(122, 162, 247, 0.5)`,
   `rgb(100% 0% 0% / 50%)`, `hsl(120, 100%, 50%)`,
   `hsla(0.5turn 100% 50% / 25%)`, and `rgba(0, 0, 0, 0)`.
@@ -96,7 +97,7 @@ surface for this change. At planning time, `detectColor` accepted only six-digit
 
 - Implement every format/range in the spec: short/long CSS hex with optional alpha,
   RGB/RGBA and HSL/HSLA, comma and space/slash notation, percentage channels/alpha,
-  and the specified hue units. Retain unprefixed six-digit hex compatibility.
+  and the specified hue units. Accept unprefixed six- and eight-digit hex.
 - Valid values enter the existing Colors filter; malformed, out-of-range, mixed
   syntax, and color fragments embedded in prose remain Text.
 - Compact and expanded previews render the same RGBA color and show transparency
@@ -186,26 +187,42 @@ prefix. Reuse the same categories/counts for typed queries and pills.
 
 ## Task 5: Add contextual two-line result rows
 
-**Context:** Rows currently contain one elided title plus an optional swatch/image.
-No captured application or authoritative text timestamp is available.
+**Context:** Current-type two-line rows are implemented. No captured application
+or authoritative text timestamp is available.
+
+Pulled forward at the user's request and verified 2026-09-10: rounded icon/swatch
+frames, unframed image thumbnails, current-type subtitles, and the 55/45 split
+without changing card dimensions. Link-domain and new-category labels still
+depend on Task 2; title highlighting still depends on Task 4. Those criteria
+remain open rather than expanding this pass into classifiers.
+
+The isolated UI smoke covered literal markup, full counts beyond preview limits,
+missing-image fallback icons, selection/filtering, compact/expanded alpha previews,
+oversized edit refusal, removal, and metadata refresh after an edited copy. The
+packaged copy helper preserved the original hashless expression and whitespace
+through a temporary file transport, without replacing the system clipboard.
 
 **Acceptance criteria**
 
-- Add type icons and a muted metadata line without losing color/image thumbnails,
-  selection contrast, title highlighting, mouse activation, or keyboard behavior.
+- Add rounded frames for type icons and smaller color swatches, unframed image
+  thumbnails, and a muted metadata line without losing selection contrast, title
+  highlighting, mouse activation, or keyboard behavior. Failed images keep a type icon.
 - Show exact word/line counts for retained text, type/domain for links, directory/
   count information for files, and available image MIME. Omit unknown fields.
 - Reuse metadata computed when history changes; do not rescan full text for every
   search keystroke or falsely report bounded-preview counts as full-entry counts.
 - Preserve bounded placeholders and long/unbroken/Unicode text behavior; row
   metadata must not turn unknown app/time/size into misleading values.
+- Widen the list to 55% and reduce previews to 45% without changing card dimensions.
 
 **Verify**
 
 - Run `node tests/clipboard-history.js` for meaningful metadata boundaries and
   cache invalidation after history replacement/edit/removal where needed.
 - Inspect corpus rows and selection transitions in the isolated harness, including
-  narrow width, long text, markup-like text, files, images, and translucent colors.
+  long text, markup-like text, files, images, and translucent colors. Keep the
+  visible test widget at its original dimensions; constrained-width checks must
+  not resize the user's visible widget.
 
 ## Task 6: Enrich JSON and link previews
 
@@ -248,8 +265,8 @@ query semantics, metadata limits, color syntax, and controls. Remove temporary
 verification artifacts; do not add permanent tests that merely pin wording/wiring.
 
 Completion means the specified UI and color behavior work end to end. It does not
-permit pushing or publishing. Check that `main`, `origin/main`, the manifest
-version, and the installed plugin remain unchanged before reporting the result.
+permit pushing or publishing. Leave `main`, `origin/main`, and the manifest version
+unchanged. Refresh only the separately authorized local development installation.
 
 ## Follow-ups requiring a separate scope decision
 

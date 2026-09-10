@@ -16,16 +16,31 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 - Navigate with the arrow keys or `Ctrl+J` / `Ctrl+K`
 - Filter all entries, text, images, or detected CSS colors
 - Preview long text, images, and detected colors without leaving the overlay
+- Scan two-line rows with type icons, small color swatches, and image thumbnails
+- See available word/line counts, file counts/directories, and image MIME types
 - Edit text before copying or pasting it
 - Paste, copy, open, remove, or clear history entries from the keyboard
 - Follow the active Omarchy theme through the shell's shared UI components
+
+## Row details
+
+The result list uses 55% of the split view without changing the overlay's outer
+dimensions. Type icons and small color swatches have rounded frames; image
+thumbnails are unframed and keep the same text alignment.
+
+Subtitles show full word/line counts for retained text and colors, file counts
+and a shared directory when available, or image MIME. Words are whitespace-delimited;
+line counts include an empty final line after a trailing line break. Counts are
+computed when history changes, not from the shortened preview or on each search.
+Oversized placeholders have no word/line counts. App names, copy ages, and unknown
+image dimensions are not guessed.
 
 ## Color formats
 
 The Colors filter recognizes whole color values, including:
 
 - `#RGB`, `#RGBA`, `#RRGGBB`, and `#RRGGBBAA` (CSS alpha-last order);
-- six-digit hex without `#`, for compatibility;
+- six- or eight-digit hex without `#`;
 - `rgb()` / `rgba()` with numeric or percentage channels, comma notation, or
   modern space/slash notation such as `rgb(100% 0% 0% / 50%)`; and
 - `hsl()` / `hsla()` with percentage saturation/lightness and degree, radian,

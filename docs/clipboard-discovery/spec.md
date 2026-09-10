@@ -1,6 +1,6 @@
 # Clipboard discovery and presentation
 
-Status: in progress; expanded color support is implemented, remaining feature work is planned.
+Status: in progress; expanded colors and current-type two-line rows are implemented. Remaining discovery work is planned.
 Last updated: 2026-09-10
 Branch: `feat/clipboard-discovery`
 
@@ -38,6 +38,15 @@ The implementation sequence is in [plan.md](plan.md).
 - Add type icons and a muted subtitle. Use only available/derived information:
   words and lines for text, type, link domain, file basename/directory/count,
   and validated image MIME. Do not fabricate app names, copy ages, or image sizes.
+- Use a consistent icon column: rounded frames around type icons and inset smaller
+  color swatches, but unframed image thumbnails. Missing images retain a framed
+  type icon. Move only the divider to allocate 55% to results and 45% to previews;
+  preserve the card's original width and height. Implement current-type subtitles
+  before the new categories.
+- Count whitespace-delimited words and logical lines over complete retained text.
+  CRLF counts as one line break; CR, LF, and Unicode line/paragraph separators also
+  break lines. A trailing break leaves an empty final line. Oversized placeholders
+  have no known word/line counts.
 - Classify standalone links, file URI entries, bounded valid JSON, conservative
   code-like text, images, and colors. Text is the fallback category, not a union
   of all text-derived categories. A single copied image file belongs to Images;
@@ -61,8 +70,8 @@ The implementation sequence is in [plan.md](plan.md).
 Recognize an entire trimmed color value, case-insensitively; preserve its original
 text, whitespace, and spelling when copying, pasting, or editing:
 
-- Existing six-digit hex, with or without `#`.
-- CSS `#RGB`, `#RGBA`, `#RRGGBB`, and `#RRGGBBAA`; alpha is the last CSS component.
+- Six- and eight-digit hex, with or without `#`; alpha is the last CSS component.
+- CSS `#RGB` and `#RGBA`; short hex requires `#` to avoid classifying ordinary words.
 - `rgb()` and `rgba()`: numeric or percentage channels, legacy comma notation,
   and modern space notation with optional slash alpha.
 - `hsl()` and `hsla()`: percentage saturation/lightness, legacy comma notation,

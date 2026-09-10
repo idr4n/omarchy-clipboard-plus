@@ -30,6 +30,7 @@ Item {
   property bool historyWriteFailed: false
   property var historyWriteExpected: null
   property var history: []
+  readonly property var preparedHistory: ClipboardHistory.prepareRows(root.history)
   property string historyStatus: "loading"
   property bool historyContainsOversized: false
   property string historyError: ""
@@ -60,7 +61,7 @@ Item {
   property int footerHeight: Math.max(Style.space(28), Style.font.caption + Style.spacing.controlPaddingY)
   property int cardWidth: Math.min(Style.space(940), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(640), panel.height - Style.gapsOut * 2)
-  property int rowHeight: Math.max(Style.space(50), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
+  property int rowHeight: Math.max(Style.space(64), Style.font.title + Style.font.caption + Style.space(24))
   readonly property int historyLimit: ClipboardHistory.maxHistoryEntries
   property int displayLimit: 60
 
@@ -106,7 +107,7 @@ Item {
         context.fillStyle = swatch.checkerLight
         context.fillRect(0, 0, width, height)
         context.fillStyle = swatch.checkerDark
-        var cell = Math.max(4, Style.space(10))
+        var cell = Math.max(2, Math.min(Style.space(10), Math.floor(Math.min(width, height) / 4)))
         for (var y = 0; y < height; y += cell) {
           for (var x = 0; x < width; x += cell) {
             if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2)
@@ -413,8 +414,20 @@ Item {
     root.rebuildDisplay()
   }
 
+  function rowSubtitle(row) {
+    if (row.entryType === "oversized") return "Text · Too large to preview"
+    if (row.entryType === "image") return "Image · " + row.mime
+    if (row.entryType === "file") {
+      var label = row.previewImage ? "Image file" : (row.fileCount === 1 ? "File" : row.fileCount + " files")
+      return label + (row.directory ? " · " + row.directory : "")
+    }
+    return (row.entryType === "color" ? "Color" : "Text")
+      + " · " + row.wordCount + (row.wordCount === 1 ? " word" : " words")
+      + " · " + row.lineCount + (row.lineCount === 1 ? " line" : " lines")
+  }
+
   function rebuildDisplay() {
-    var rows = ClipboardHistory.displayRows(root.history, root.filterText, root.displayLimit, root.typeFilter)
+    var rows = ClipboardHistory.displayRows(root.preparedHistory, root.filterText, root.displayLimit, root.typeFilter)
 
     displayModel.clear()
     for (var i = 0; i < rows.length; i++) {
@@ -424,6 +437,7 @@ Item {
         entryType: row.entryType,
         fullText: row.fullText,
         previewText: row.previewText,
+        subtitle: root.rowSubtitle(row),
         previewImage: row.previewImage ? Util.fileUrl(row.previewImage) : "",
         swatchColor: color ? Qt.rgba(color.red, color.green, color.blue, color.alpha) : Qt.rgba(0, 0, 0, 0),
         colorHex: color ? color.hex : "",
@@ -965,7 +979,8 @@ Item {
             spacing: 0
 
             Item {
-              width: parent.width * 0.45
+              id: resultsPane
+              width: Math.floor(parent.width * 0.55)
               height: parent.height
               clip: true
 
@@ -983,12 +998,14 @@ Item {
                   required property int index
                   required property string entryType
                   required property string previewText
+                  required property string subtitle
                   required property string fullText
                   required property string previewImage
                   required property color swatchColor
                   required property string colorHex
 
                   readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
+                  readonly property color contentColor: hasCursor ? root.selectedText : root.foreground
 
                   width: ListView.view.width
                   height: root.rowHeight
@@ -1003,38 +1020,75 @@ Item {
                     anchors.bottomMargin: Style.space(8)
                     spacing: Style.space(10)
 
-                    ColorSwatch {
-                      visible: row.colorHex.length > 0
-                      width: visible ? parent.height : 0
-                      height: parent.height
-                      cornerRadius: Math.max(Style.space(4), height * 0.22)
-                      value: row.swatchColor
+                    Rectangle {
+                      id: typeFrame
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Math.min(parent.height, Style.space(42))
+                      height: width
+                      radius: Math.max(Style.space(5), root.cornerRadius)
+                      color: thumbnail.status === Image.Ready ? "transparent" : Util.alpha(row.contentColor, 0.055)
+                      border.width: thumbnail.status === Image.Ready ? 0 : Style.normalBorderWidth
+                      border.color: Util.alpha(row.contentColor, 0.12)
+
+                      OpticalGlyph {
+                        anchors.fill: parent
+                        visible: row.colorHex.length === 0 && thumbnail.status !== Image.Ready
+                        text: row.previewImage ? "󰋩" : (row.entryType === "file" ? "󰉋" : "󰈙")
+                        fontFamily: root.fontFamily
+                        fontSize: Style.space(21)
+                        color: row.contentColor
+                        opacity: 0.8
+                      }
+
+                      Image {
+                        id: thumbnail
+                        anchors.fill: parent
+                        visible: status === Image.Ready
+                        source: row.colorHex.length === 0 ? row.previewImage : ""
+                        sourceSize.width: Math.max(1, width)
+                        sourceSize.height: Math.max(1, height)
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        smooth: true
+                      }
+
+                      ColorSwatch {
+                        anchors.centerIn: parent
+                        visible: row.colorHex.length > 0
+                        width: Math.max(1, parent.width - Style.space(16))
+                        height: width
+                        cornerRadius: Style.space(4)
+                        value: row.swatchColor
+                      }
                     }
 
-                    Image {
-                      visible: row.colorHex.length === 0 && row.previewImage.length > 0
-                      width: visible ? parent.height : 0
-                      height: parent.height
-                      source: row.previewImage
-                      sourceSize.width: Math.max(1, root.rowHeight)
-                      sourceSize.height: Math.max(1, root.rowHeight)
-                      fillMode: Image.PreserveAspectFit
-                      asynchronous: true
-                      smooth: true
-                    }
+                    Column {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Math.max(0, parent.width - typeFrame.width - parent.spacing)
+                      spacing: Style.space(3)
 
-                    Text {
-                      width: parent.width - ((row.colorHex.length > 0 || row.previewImage.length > 0) ? parent.height + parent.spacing : 0)
-                      height: parent.height
-                      text: row.previewText
-                      color: row.hasCursor ? root.selectedText : root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.title
-                      opacity: row.entryType === "image" || row.entryType === "file" ? 0.72 : 1
-                      elide: Text.ElideRight
-                      wrapMode: Text.NoWrap
-                      textFormat: Text.PlainText
-                      verticalAlignment: Text.AlignVCenter
+                      Text {
+                        width: parent.width
+                        text: row.previewText
+                        color: row.contentColor
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.title
+                        elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
+                        textFormat: Text.PlainText
+                      }
+
+                      Text {
+                        width: parent.width
+                        text: row.subtitle
+                        color: row.contentColor
+                        opacity: 0.65
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
+                        textFormat: Text.PlainText
+                      }
                     }
                   }
 
@@ -1055,7 +1109,7 @@ Item {
 
             Item {
               id: previewPane
-              width: parent.width * 0.55
+              width: parent.width - resultsPane.width
               height: parent.height
               clip: true
 

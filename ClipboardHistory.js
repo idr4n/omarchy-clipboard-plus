@@ -55,7 +55,7 @@ function colorComponent(token, scale, percentOnly) {
 function parseColor(text) {
   var value = String(text || "").trim()
   var hex = value.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
-    || value.match(/^([0-9a-f]{6})$/i)
+    || value.match(/^([0-9a-f]{6}(?:[0-9a-f]{2})?)$/i)
   if (hex) {
     var digits = hex[1]
     if (digits.length <= 4) {
@@ -536,8 +536,70 @@ function normalizedTypeFilter(value) {
   return filter === "text" || filter === "images" || filter === "colors" ? filter : "all"
 }
 
-function displayRows(history, query, limit, typeFilter) {
+// Prepare one bounded snapshot per history change. Searching it must not recount
+// complete payloads or derive metadata from the truncated preview.
+function prepareRows(history) {
   var values = Array.isArray(history) ? history : []
+  var count = Math.min(values.length, maxHistoryEntries)
+
+  var rows = []
+
+  for (var i = 0; i < count; i++) {
+    var normalized = normalizeEntry(values[i])
+    if (!normalized) continue
+    var entry = cappedEntry(normalized)
+
+    var paths = filePaths(entry)
+    var isFile = paths.length > 0
+    var allPaths = isFile && entry !== normalized ? filePaths(normalized) : paths
+    var isImage = entry.type === "image"
+    var isOversized = entry.type === "text" && entry.oversized === true
+    var isImageFile = isFile && allPaths.length === 1 && isImagePath(paths[0])
+    var color = entry.type === "text" && !isOversized ? String(entry.color || "") : ""
+
+    var previewPath = isImage ? String(entry.path || "") : (isImageFile ? paths[0] : "")
+    var wordCount = null
+    var lineCount = null
+    if (!isImage && !isOversized && !isFile) {
+      wordCount = 0
+      lineCount = 1
+      var words = /\S+/g
+      var breaks = /\r\n|[\r\n\u2028\u2029]/g
+      while (words.test(normalized.text)) wordCount++
+      while (breaks.test(normalized.text)) lineCount++
+    }
+    var directory = ""
+    for (var j = 0; j < allPaths.length; j++) {
+      var parent = allPaths[j].slice(0, allPaths[j].lastIndexOf("/")) || "/"
+      if (j === 0) directory = parent
+      else if (parent !== directory) {
+        directory = ""
+        break
+      }
+    }
+    rows.push({
+      entryType: isOversized ? "oversized" : (color ? "color" : (isFile ? "file" : entry.type)),
+      fullText: isImage ? "" : fullText(entry),
+      previewText: isFile ? (allPaths.length === 1 ? fileName(paths[0]) : allPaths.length + " files") : previewText(entry),
+      previewImage: previewPath,
+      color: color,
+      colorDetails: color ? colorDetails(normalized.text) : null,
+      path: isImage ? String(entry.path || "") : (isFile && allPaths.length === 1 ? paths[0] : ""),
+      mime: isImage ? String(entry.mime || "image/png") : "text/plain",
+      searchText: searchableText(entry).toLowerCase(),
+      wordCount: wordCount,
+      lineCount: lineCount,
+      fileCount: allPaths.length,
+      directory: directory.slice(0, displayTextLimit),
+      index: i
+    })
+  }
+
+  return rows
+}
+
+function displayRows(preparedRows, query, limit, typeFilter) {
+  var values = Array.isArray(preparedRows) ? preparedRows : []
   var needle = String(query || "").trim().toLowerCase()
   var filter = normalizedTypeFilter(typeFilter)
   var max = limit === undefined || limit === null ? 50 : Number(limit)
@@ -546,39 +608,15 @@ function displayRows(history, query, limit, typeFilter) {
   if (max === 0) return []
 
   var rows = []
-
   for (var i = 0; i < values.length; i++) {
-    var normalized = normalizeEntry(values[i])
-    if (!normalized) continue
-    var entry = cappedEntry(normalized)
-    if (needle && searchableText(entry).toLowerCase().indexOf(needle) < 0) continue
-
-    var paths = filePaths(entry)
-    var isFile = paths.length > 0
-    var isImage = entry.type === "image"
-    var isOversized = entry.type === "text" && entry.oversized === true
-    var isImageFile = isFile && paths.length === 1 && isImagePath(paths[0])
-    var color = entry.type === "text" && !isOversized ? String(entry.color || "") : ""
-
-    if (filter === "colors" && !color) continue
-    if (filter === "images" && !isImage && !isImageFile) continue
-    if (filter === "text" && (isImage || isImageFile || color)) continue
-
-    var previewPath = isImage ? String(entry.path || "") : (isImageFile ? paths[0] : "")
-    rows.push({
-      entryType: isOversized ? "oversized" : (color ? "color" : (isFile ? "file" : entry.type)),
-      fullText: isImage ? "" : fullText(entry),
-      previewText: previewText(entry),
-      previewImage: previewPath,
-      color: color,
-      colorDetails: color ? colorDetails(normalized.text) : null,
-      path: isImage ? String(entry.path || "") : (isFile && paths.length === 1 ? paths[0] : ""),
-      mime: isImage ? String(entry.mime || "image/png") : "text/plain",
-      index: i
-    })
+    var row = values[i]
+    if (needle && row.searchText.indexOf(needle) < 0) continue
+    if (filter === "colors" && !row.color) continue
+    if (filter === "images" && !row.previewImage) continue
+    if (filter === "text" && (row.previewImage || row.color)) continue
+    rows.push(row)
     if (rows.length >= max) break
   }
-
   return rows
 }
 
@@ -635,6 +673,7 @@ if (typeof module !== "undefined") {
     filePaths: filePaths,
     fileEntryText: fileEntryText,
     fullText: fullText,
+    prepareRows: prepareRows,
     displayRows: displayRows,
     entryText: entryText,
     textPreview: textPreview

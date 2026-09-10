@@ -20,6 +20,8 @@ assert.equal(history.detectColor("color #a954f4"), "");
 assert.equal(history.detectColor("#abcd"), "#AABBCCDD");
 assert.equal(history.detectColor("#abc"), "#AABBCC");
 assert.equal(history.detectColor("#123f"), "#112233");
+assert.deepEqual(history.colorDetails(" \t7aa2f780\n"), history.colorDetails("#7aa2f780"));
+assert.equal(history.detectColor("12345678"), "#12345678");
 
 // Each expression exercises a distinct CSS syntax or conversion boundary.
 for (const [expression, expected] of [
@@ -71,7 +73,7 @@ for (const expression of [
 }
 
 for (const invalid of [
-  "#12", "#12345", "#1234567", "abc", "abcd", "12345678",
+  "#12", "#12345", "#1234567", "abc", "abcd", "1234567", "123456789",
   "color: #abc", "use rgb(1,2,3) here",
   "rgb(256,0,0)", "rgb(-1 0 0)", "rgb(101% 0% 0%)",
   "rgba(0,0,0,2)", "rgb(0 0 0 / -1%)", "rgb(0 0 0 / 101%)",
@@ -91,14 +93,15 @@ const colorHistory = parsedEntries([
   colorExpression,
   { type: "text", text: "not a color", color: "#FF0000" },
 ]);
-const colorRows = history.displayRows(colorHistory, "", 50, "colors");
+const preparedColors = history.prepareRows(colorHistory);
+const colorRows = history.displayRows(preparedColors, "", 50, "colors");
 assert.deepEqual(colorRows.map((row) => row.index), [1]);
 assert.equal(colorRows[0].colorDetails.alpha, 0.5);
 assert.equal(history.entryText(colorHistory, colorRows[0].index), colorExpression);
 const savedColors = JSON.parse(history.serializeHistory(colorHistory).text);
 assert.deepEqual(savedColors[1], { type: "text", text: colorExpression });
 assert.deepEqual(
-  history.displayRows(history.parseHistory(JSON.stringify(savedColors)).entries, "", 50, "colors")
+  history.displayRows(history.prepareRows(history.parseHistory(JSON.stringify(savedColors)).entries), "", 50, "colors")
     .map((row) => row.index),
   [1],
 );
@@ -109,23 +112,72 @@ const entries = parsedEntries([
   { type: "image", path: "/tmp/example.png", mime: "image/png" },
   { type: "text", text: "file:///tmp/file.txt" },
 ]);
+const preparedEntries = history.prepareRows(entries);
 
 assert.deepEqual(
-  history.displayRows(entries, "", 50, "colors").map((row) => row.entryType),
+  history.displayRows(preparedEntries, "", 50, "colors").map((row) => row.entryType),
   ["color"],
 );
-assert.equal(history.displayRows(entries, "", 50, "colors")[0].index, 0);
+assert.equal(history.displayRows(preparedEntries, "", 50, "colors")[0].index, 0);
 assert.deepEqual(
-  history.displayRows(entries, "", 50, "images").map((row) => row.entryType),
+  history.displayRows(preparedEntries, "", 50, "images").map((row) => row.entryType),
   ["image"],
 );
-assert.equal(history.displayRows(entries, "", 50, "images")[0].index, 2);
+assert.equal(history.displayRows(preparedEntries, "", 50, "images")[0].index, 2);
 assert.deepEqual(
-  history.displayRows(entries, "ordinary", 50, "all").map((row) => row.previewText),
+  history.displayRows(preparedEntries, "ordinary", 50, "all").map((row) => row.previewText),
   ["ordinary text"],
 );
-assert.equal(history.displayRows(entries, "ordinary", 50, "all")[0].index, 1);
-assert.equal(history.displayRows(entries, "", 50, "text").length, 2);
+assert.equal(history.displayRows(preparedEntries, "ordinary", 50, "all")[0].index, 1);
+assert.deepEqual(
+  history.displayRows(preparedEntries, "", 50, "text").map((row) => row.index),
+  [1, 3],
+);
+
+const unicodeLines = " alpha\tbeta\r\nγ\u00a0δ\r猫\u2028🙂\u2029last\n";
+const beyondPreview = "first\n" + "word ".repeat(3000) + "\nlast";
+const metadataEntries = parsedEntries([
+  { type: "text", text: unicodeLines, wordCount: 99, lineCount: 99 },
+  { type: "text", text: beyondPreview },
+  { type: "text", text: "x".repeat(20000) },
+  { type: "text", text: " \t7aa2f780\n" },
+]);
+const metadataRows = history.prepareRows(metadataEntries);
+assert.deepEqual(
+  metadataRows.map((row) => [row.wordCount, row.lineCount]),
+  [[7, 6], [3002, 3], [1, 1], [1, 2]],
+);
+assert.equal(history.displayRows(metadataRows, "first", 50, "text")[0].wordCount, 3002);
+assert.deepEqual(history.displayRows(metadataRows.slice(1, 2), "last", 50, "all"), []);
+assert.equal(history.entryText(metadataEntries, 1), beyondPreview);
+const hashlessRow = history.displayRows(metadataRows, "", 50, "colors")[0];
+assert.equal(hashlessRow.index, 3);
+assert.equal(hashlessRow.colorDetails.alpha, 128 / 255);
+assert.equal(history.entryText(metadataEntries, hashlessRow.index), " \t7aa2f780\n");
+
+const manyFiles = Array.from(
+  { length: 400 },
+  (_, index) => `file:///tmp/${index === 399 ? "other" : "shared"}/document-${index}.txt`,
+).join("\n");
+const fileMetadataRows = history.prepareRows(parsedEntries([
+  { type: "text", text: manyFiles },
+  { type: "text", text: "file:///tmp/Folder%20Name/first.txt\nfile:///tmp/Folder%20Name/second.txt" },
+  { type: "text", text: "file:///root-file.txt" },
+  { type: "text", text: "file:///tmp/copied-image.png" },
+]));
+assert.deepEqual(
+  fileMetadataRows.map((row) => [row.fileCount, row.directory]),
+  [[400, ""], [2, "/tmp/Folder Name"], [1, "/"], [1, "/tmp"]],
+);
+assert.deepEqual(
+  history.displayRows(fileMetadataRows, "", 50, "images").map((row) => row.index),
+  [3],
+);
+const lateFileUri = history.prepareRows(parsedEntries([
+  { type: "text", text: "x".repeat(8192) + "\nfile:///tmp/later.png" },
+]))[0];
+assert.equal(lateFileUri.entryType, "text");
+assert.equal(lateFileUri.previewImage, "");
 
 assert.equal(history.findTextIndex(entries, "#a954f4"), 0);
 assert.equal(history.findTextIndex(entries, "ordinary text"), 1);
@@ -261,15 +313,18 @@ assert.deepEqual(oversizedStock.entries[1], {
   oversized: true,
   originalLength: history.maxEntryTextLength + 1,
 });
+const preparedOversized = history.prepareRows(oversizedStock.entries);
+assert.equal(preparedOversized[1].wordCount, null);
+assert.equal(preparedOversized[1].lineCount, null);
 assert.deepEqual(
-  history.displayRows(oversizedStock.entries, "", 50, "all").map((row) => row.entryType),
+  history.displayRows(preparedOversized, "", 50, "all").map((row) => row.entryType),
   ["text", "oversized", "text"],
 );
 assert.equal(
-  history.displayRows(oversizedStock.entries, "after", 50, "all")[0].index,
+  history.displayRows(preparedOversized, "after", 50, "all")[0].index,
   2,
 );
-assert.equal(history.displayRows(oversizedStock.entries, "1048577", 50, "all").length, 0);
+assert.equal(history.displayRows(preparedOversized, "1048577", 50, "all").length, 0);
 assert.equal(history.entryText(oversizedStock.entries, 1), "");
 assert.equal(history.serializeHistory(oversizedStock.entries, 50, 1).status, "oversized");
 assert.equal(history.serializeHistory(oversizedStock.entries, 50, 1).containsOversized, true);
@@ -327,7 +382,7 @@ assert.equal(counted.status, "ok");
 assert.equal(counted.truncated, true);
 assert.equal(counted.entries.length, history.maxHistoryEntries);
 assert.equal(
-  history.displayRows(counted.entries, "entry-299", 50, "all")[0].index,
+  history.displayRows(history.prepareRows(counted.entries), "entry-299", 50, "all")[0].index,
   299,
 );
 
