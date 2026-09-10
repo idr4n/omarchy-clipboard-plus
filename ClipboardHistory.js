@@ -531,9 +531,31 @@ function cappedEntry(entry) {
   }
 }
 
+function linkDomain(text) {
+  var source = String(text || "")
+  if (source.length > displayTextLimit) return ""
+  var value = source.trim()
+  if (!value || /[\s\u0000-\u001f\u007f"'<>\\]/.test(value)) return ""
+
+  // Match complete values, not the URL fragments the packaged opener can find
+  // inside prose. Keep bare-domain recognition compatible with that helper.
+  var url = value.match(/^https?:\/\/([^/?#]+)(?:[/?#].*)?$/)
+  if (!url) {
+    var bare = value.match(/^([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(?:\/.*)?$/i)
+    return bare ? bare[1].toLowerCase() : ""
+  }
+
+  var authority = url[1]
+  var host = authority.slice(authority.lastIndexOf("@") + 1)
+  var domain = host.charAt(0) === "["
+    ? host.match(/^(\[[0-9a-f:.]+\])(?::[0-9]+)?$/i)
+    : host.match(/^([^:\[\]]+)(?::[0-9]+)?$/)
+  return domain ? domain[1].toLowerCase() : ""
+}
+
 function normalizedTypeFilter(value) {
   var filter = String(value || "all").toLowerCase()
-  return filter === "text" || filter === "images" || filter === "colors" ? filter : "all"
+  return filter === "text" || filter === "links" || filter === "images" || filter === "colors" ? filter : "all"
 }
 
 // Prepare one bounded snapshot per history change. Searching it must not recount
@@ -556,6 +578,7 @@ function prepareRows(history) {
     var isOversized = entry.type === "text" && entry.oversized === true
     var isImageFile = isFile && allPaths.length === 1 && isImagePath(paths[0])
     var color = entry.type === "text" && !isOversized ? String(entry.color || "") : ""
+    var domain = !isImage && !isOversized && !isFile && !color ? linkDomain(normalized.text) : ""
 
     var previewPath = isImage ? String(entry.path || "") : (isImageFile ? paths[0] : "")
     var wordCount = null
@@ -578,7 +601,7 @@ function prepareRows(history) {
       }
     }
     rows.push({
-      entryType: isOversized ? "oversized" : (color ? "color" : (isFile ? "file" : entry.type)),
+      entryType: isOversized ? "oversized" : (color ? "color" : (isFile ? "file" : (domain ? "link" : entry.type))),
       fullText: isImage ? "" : fullText(entry),
       previewText: isFile ? (allPaths.length === 1 ? fileName(paths[0]) : allPaths.length + " files") : previewText(entry),
       previewImage: previewPath,
@@ -591,6 +614,7 @@ function prepareRows(history) {
       lineCount: lineCount,
       fileCount: allPaths.length,
       directory: directory.slice(0, displayTextLimit),
+      linkDomain: domain,
       index: i
     })
   }
@@ -612,8 +636,9 @@ function displayRows(preparedRows, query, limit, typeFilter) {
     var row = values[i]
     if (needle && row.searchText.indexOf(needle) < 0) continue
     if (filter === "colors" && !row.color) continue
+    if (filter === "links" && row.entryType !== "link") continue
     if (filter === "images" && !row.previewImage) continue
-    if (filter === "text" && (row.previewImage || row.color)) continue
+    if (filter === "text" && (row.previewImage || row.color || row.entryType === "link")) continue
     rows.push(row)
     if (rows.length >= max) break
   }

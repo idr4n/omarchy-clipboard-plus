@@ -134,6 +134,48 @@ assert.deepEqual(
   [1, 3],
 );
 
+const originalLink = " \thttps://EXAMPLE.com/Docs?q=clipboard#section\n";
+const linkEntries = parsedEntries([
+  { type: "text", text: "ordinary text" },
+  { type: "text", text: originalLink },
+  { type: "text", text: "example.org/manual" },
+  { type: "text", text: "http://localhost:3000/settings" },
+  { type: "text", text: "http://[::1]:8080/" },
+  { type: "text", text: "https://display-name@example.net:443/path" },
+  { type: "text", text: "https://例え.テスト/資料" },
+  { type: "text", text: "https://example.com/remote.png" },
+  { type: "text", text: "#abc" },
+  { type: "text", text: "file:///tmp/local.png" },
+  { type: "text", text: "not a link", linkDomain: "forged.test" },
+]);
+const preparedLinks = history.prepareRows(linkEntries);
+const filteredLinks = history.displayRows(preparedLinks, "", 50, "links");
+assert.deepEqual(filteredLinks.map((row) => row.index), [1, 2, 3, 4, 5, 6, 7]);
+assert.deepEqual(
+  filteredLinks.map((row) => row.linkDomain),
+  ["example.com", "example.org", "localhost", "[::1]", "example.net", "例え.テスト", "example.com"],
+);
+assert.deepEqual(history.displayRows(preparedLinks, "docs", 50, "links").map((row) => row.index), [1]);
+assert.deepEqual(history.displayRows(preparedLinks, "", 50, "text").map((row) => row.index), [0, 10]);
+assert.deepEqual(history.displayRows(preparedLinks, "", 50, "images").map((row) => row.index), [9]);
+assert.equal(preparedLinks[7].previewImage, "");
+assert.equal(history.entryText(linkEntries, filteredLinks[0].index), originalLink);
+assert.deepEqual(JSON.parse(history.serializeHistory(linkEntries).text)[1], { type: "text", text: originalLink });
+
+const rejectedLinks = [
+  "see https://example.com", "https://example.com\nhttps://example.org",
+  '<a href="https://example.com">link</a>', "https://", "https://?query",
+  "https://:443/", "https://[invalid]/", "https://example.com\\@other.test/",
+  "https://example.com/\u0000", "javascript:alert(1)", "mailto:hello@example.com",
+  "https://example.com/" + "a".repeat(8192) + "\ntrailing prose",
+];
+const rejectedLinkRows = history.prepareRows(parsedEntries(rejectedLinks));
+assert.deepEqual(history.displayRows(rejectedLinkRows, "", 50, "links"), []);
+assert.ok(rejectedLinkRows.every((row) => row.entryType === "text"));
+const boundedLink = "https://example.com/".padEnd(8192, "a");
+const boundedLinkRows = history.prepareRows(parsedEntries([boundedLink, boundedLink + "a"]));
+assert.deepEqual(history.displayRows(boundedLinkRows, "", 50, "links").map((row) => row.index), [0]);
+
 const unicodeLines = " alpha\tbeta\r\nγ\u00a0δ\r猫\u2028🙂\u2029last\n";
 const beyondPreview = "first\n" + "word ".repeat(3000) + "\nlast";
 const metadataEntries = parsedEntries([

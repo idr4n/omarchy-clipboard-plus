@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import QtQuick.Effects
 import qs.Commons
 import qs.Ui
 import "ClipboardHistory.js" as ClipboardHistory
@@ -65,7 +66,10 @@ Item {
   readonly property int historyLimit: ClipboardHistory.maxHistoryEntries
   property int displayLimit: 60
 
-  readonly property var typeFilters: ["all", "text", "images", "colors"]
+  readonly property var typeFilters: ["all", "text", "links", "images", "colors"]
+  readonly property var filterIcons: ({ all: "", text: "󰈙", links: "󰌷", images: "󰋩", colors: "󰏘" })
+
+  onTypeFilterChanged: Qt.callLater(root.ensureActiveFilterVisible)
 
   component ColorSwatch: Item {
     id: swatch
@@ -417,6 +421,7 @@ Item {
   function rowSubtitle(row) {
     if (row.entryType === "oversized") return "Text · Too large to preview"
     if (row.entryType === "image") return "Image · " + row.mime
+    if (row.entryType === "link") return "Link · " + row.linkDomain
     if (row.entryType === "file") {
       var label = row.previewImage ? "Image file" : (row.fileCount === 1 ? "File" : row.fileCount + " files")
       return label + (row.directory ? " · " + row.directory : "")
@@ -498,6 +503,18 @@ Item {
     root.cursorActive = true
     root.disarmPointer()
     root.rebuildDisplay()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function ensureActiveFilterVisible() {
+    var button = filterRepeater.itemAt(root.typeFilters.indexOf(root.typeFilter))
+    if (!button) return
+    var maxX = Math.max(0, filterBar.contentWidth - filterBar.width)
+    var nextX = Math.min(filterBar.contentX, maxX)
+    if (button.x < nextX) nextX = button.x
+    else if (button.x + button.width > nextX + filterBar.width)
+      nextX = button.x + button.width - filterBar.width
+    filterBar.contentX = Math.max(0, Math.min(nextX, maxX))
   }
 
   function cycleTypeFilter(delta) {
@@ -941,38 +958,64 @@ Item {
         anchors.leftMargin: card.contentLeftInset
         spacing: root.contentSpacing
 
-        Row {
+        Text {
           width: parent.width
           height: root.headerHeight
-          spacing: Style.space(12)
+          text: root.filterText || "Search clipboard…"
+          textFormat: Text.PlainText
+          color: root.foreground
+          opacity: root.filterText ? 1 : 0.58
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading
+          elide: Text.ElideRight
+          verticalAlignment: Text.AlignVCenter
+        }
 
-          Text {
-            width: parent.width - filterLabel.width - parent.spacing
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || "Search clipboard…"
-            textFormat: Text.PlainText
-            color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
-            elide: Text.ElideRight
-          }
+        Flickable {
+          id: filterBar
+          width: parent.width
+          height: filterPills.implicitHeight
+          contentWidth: filterPills.implicitWidth
+          contentHeight: height
+          flickableDirection: Flickable.HorizontalFlick
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentWidth > width
+          clip: true
+          onWidthChanged: Qt.callLater(root.ensureActiveFilterVisible)
+          onContentWidthChanged: Qt.callLater(root.ensureActiveFilterVisible)
 
-          Text {
-            id: filterLabel
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.typeFilter === "all" ? "ALL" : root.typeFilter.toUpperCase()
-            color: root.selectedText
-            opacity: 0.72
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
+          Row {
+            id: filterPills
+            spacing: Style.space(6)
+
+            Repeater {
+              id: filterRepeater
+              model: root.typeFilters
+
+              Button {
+                required property string modelData
+                height: Math.max(Style.space(24), implicitHeight)
+                text: modelData.charAt(0).toUpperCase() + modelData.slice(1)
+                iconText: root.filterIcons[modelData]
+                selected: root.typeFilter === modelData
+                foreground: root.foreground
+                accent: root.selectedText
+                background: Util.alpha(root.foreground, 0.055)
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                iconSize: Style.font.caption
+                horizontalPadding: Style.space(10)
+                verticalPadding: Style.space(2)
+                radius: height / 2
+                onClicked: root.setTypeFilter(modelData)
+              }
+            }
           }
         }
 
         Item {
           width: parent.width
-          height: parent.height - root.headerHeight - root.footerHeight - root.contentSpacing * 2
+          height: parent.height - root.headerHeight - filterBar.height - root.footerHeight - root.contentSpacing * 3
 
           Row {
             anchors.fill: parent
@@ -1033,11 +1076,27 @@ Item {
                       OpticalGlyph {
                         anchors.fill: parent
                         visible: row.colorHex.length === 0 && thumbnail.status !== Image.Ready
-                        text: row.previewImage ? "󰋩" : (row.entryType === "file" ? "󰉋" : "󰈙")
+                        text: row.previewImage ? "󰋩" : (row.entryType === "link" ? "󰌷" : (row.entryType === "file" ? "󰉋" : "󰈙"))
                         fontFamily: root.fontFamily
                         fontSize: Style.space(21)
                         color: row.contentColor
                         opacity: 0.8
+                      }
+
+                      Item {
+                        id: thumbnailMask
+                        anchors.fill: parent
+                        visible: false
+                        layer.enabled: thumbnail.status === Image.Ready
+
+                        Rectangle {
+                          anchors.centerIn: parent
+                          width: thumbnail.paintedWidth
+                          height: thumbnail.paintedHeight
+                          radius: typeFrame.radius
+                          color: "white"
+                          antialiasing: true
+                        }
                       }
 
                       Image {
@@ -1050,6 +1109,14 @@ Item {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         smooth: true
+                        layer.enabled: status === Image.Ready
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                          maskEnabled: true
+                          maskSource: thumbnailMask
+                          maskThresholdMin: 0.3
+                          maskSpreadAtMin: 0.3
+                        }
                       }
 
                       ColorSwatch {

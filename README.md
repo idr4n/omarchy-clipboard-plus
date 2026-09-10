@@ -14,10 +14,10 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 
 - Search clipboard history by typing
 - Navigate with the arrow keys or `Ctrl+J` / `Ctrl+K`
-- Filter all entries, text, images, or detected CSS colors
+- Filter all entries, text, standalone links, images, or detected CSS colors
 - Preview long text, images, and detected colors without leaving the overlay
 - Scan two-line rows with type icons, small color swatches, and image thumbnails
-- See available word/line counts, file counts/directories, and image MIME types
+- See link domains, word/line counts, file counts/directories, and image MIME types
 - Edit text before copying or pasting it
 - Paste, copy, open, remove, or clear history entries from the keyboard
 - Follow the active Omarchy theme through the shell's shared UI components
@@ -26,14 +26,31 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 
 The result list and preview have equal width without changing the overlay's outer
 dimensions. Type icons and small color swatches have rounded frames; image
-thumbnails are unframed and keep the same text alignment.
+thumbnails have matching rounded corners without a frame, retain their aspect
+ratio, and keep the same text alignment.
 
 Subtitles show full word/line counts for retained text and colors, file counts
-and a shared directory when available, or image MIME. Words are whitespace-delimited;
+and a shared directory when available, link domains, or image MIME. Words are whitespace-delimited;
 line counts include an empty final line after a trailing line break. Counts are
 computed when history changes, not from the shortened preview or on each search.
 Oversized placeholders have no word/line counts. App names, copy ages, and unknown
 image dimensions are not guessed.
+
+## Filters and links
+
+Compact All, Text, Links, Images, and Colors pills sit below search. Click a pill
+to change category without clearing the query or losing keyboard navigation.
+`Ctrl+T` cycles through that order; `Ctrl+Shift+T` cycles backward. The existing
+`Ctrl+1` / `2` / `3` / `4` shortcuts still select All / Text / Images / Colors.
+
+Links recognizes complete, trimmed `http://` and `https://` URLs and bare domains
+such as `example.com/docs`, up to 8,192 code units. The subtitle shows the host
+without user information or a port. URLs embedded in prose, multiple links in
+one entry, and incomplete or unsafe values remain Text. Recognized links are
+excluded from Text; image URLs remain Links, not local image previews.
+
+Classification makes no network requests. Copy, paste, edit, and `Alt+Enter`
+retain the original clipboard value and existing history-index actions.
 
 ## Color formats
 
