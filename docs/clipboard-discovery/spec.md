@@ -1,6 +1,6 @@
 # Clipboard discovery and presentation
 
-Status: in progress; expanded colors and current-type two-line rows are implemented. Remaining discovery work is planned.
+Status: in progress; expanded colors, Links, compact filter pills, and current-type two-line rows are implemented. Remaining discovery work is planned.
 Last updated: 2026-09-10
 Branch: `feat/clipboard-discovery`
 
@@ -30,19 +30,37 @@ The implementation sequence is in [plan.md](plan.md).
 ### Filters, rows, and search
 
 - Show clickable All, Text, Links, Images, Files, Code, JSON, and Colors pills.
-  Keep `Ctrl+1` through `Ctrl+4` mapped to All/Text/Images/Colors and retain filter
-  cycling and all existing navigation/editor shortcuts.
+  Map `Ctrl+1` through `Ctrl+5` to the current All/Text/Links/Images/Colors order.
+  Retain filter cycling and all existing navigation/editor shortcuts.
+- Current filter slice: add Links and show working All, Text, Links, Images, and
+  Colors pills below search. Use a compact 24-pixel target height with readable
+  text and theme scaling. Do not expose placeholder categories. Preserve the
+  query when changing pills, keep keyboard focus, and reveal the active pill when
+  the strip overflows. Dedicated Files/Code/JSON filters and result counts follow.
+- Links are complete trimmed `http://`/`https://` values or bare-domain values
+  supported by the packaged opener, limited to 8,192 code units. Embedded URLs,
+  multiple values, unsafe delimiters, and incomplete values remain Text. Classify
+  without network access; show the actual host in the subtitle, omitting userinfo
+  and port. Retain original text for every action. Links are excluded from Text.
 - Show the full matching-entry count independently of the 60-row display limit;
   show `60 shown / 85 matches` when capped. Per-category counts are not required
   for this initial implementation.
 - Add type icons and a muted subtitle. Use only available/derived information:
   words and lines for text, type, link domain, file basename/directory/count,
   and validated image MIME. Do not fabricate app names, copy ages, or image sizes.
-- Use a consistent icon column: rounded frames around type icons and inset smaller
-  color swatches, but unframed image thumbnails. Missing images retain a framed
-  type icon. Center the divider so results and previews have equal width;
-  preserve the card's original width and height. Implement current-type subtitles
-  before the new categories.
+- Use a consistent icon column: shared rounded frames around type icons, inset
+  smaller color swatches, and image thumbnails. List color swatches have no separate
+  inner border. Images keep their original corners with a 3-pixel theme-scaled
+  inset; preserve aspect ratio without rounded clipping.
+  Missing images retain a framed type icon. Center the divider so results and
+  previews have equal width; preserve the card's original width.
+  Derive height from the largest complete row count below the existing theme-scaled
+  640-pixel ceiling and available logical screen height. Include actual border/padding,
+  search, pills, footer, and spacing measurements; do not hard-code a monitor height.
+  Height must not depend on result count, query, selection, or scroll position.
+  Keep smooth scrolling unchanged: no row stepping, snapping, or new input handlers.
+  Partial rows can still occur at intermediate scroll offsets. If even one row and
+  the controls cannot fit, retain the screen-fitting height instead of overflowing it.
 - Count whitespace-delimited words and logical lines over complete retained text.
   CRLF counts as one line break; CR, LF, and Unicode line/paragraph separators also
   break lines. A trailing break leaves an empty final line. Oversized placeholders

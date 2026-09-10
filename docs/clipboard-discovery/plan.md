@@ -1,6 +1,6 @@
 # Clipboard discovery implementation plan
 
-Status: in progress; Task 1 and current-type presentation from Task 5 are complete. Tasks 2–4 and 6 remain pending.
+Status: in progress; Task 1, the Links slice of Task 2, the filter-control slice of Task 3, and current-type/link presentation from Task 5 are complete. Remaining categories, result counts, search, and richer previews remain pending.
 Last updated: 2026-09-10
 Local branch: `feat/clipboard-discovery`
 Contract: [spec.md](spec.md)
@@ -55,8 +55,10 @@ under a fresh temporary directory with:
 Launch the resulting harness with `quickshell --path "$smoke/shell.qml"` through
 the harness process supervisor. Interact with it and capture visual evidence.
 Stop only that temporary process afterward. Refresh the authorized local test
-installation only after verification; do not restart the production shell or seed
-personal history with upstream screenshot scripts.
+installation only after verification; do not seed personal history with upstream
+screenshot scripts. If plugin rescanning leaves cached QML active, refresh the
+authorized development installation with a supported shell restart after warning
+about the brief bar/overlay interruption. Verify new behavior in the loaded shell.
 For action verification, use only synthetic content and a disposable target;
 never paste, delete, or clear personal history. Any actual clipboard replacement
 must be confined to an explicitly authorized smoke session.
@@ -114,15 +116,22 @@ surface for this change. At planning time, `detectColor` accepted only six-digit
 
 ## Task 2: Add derived content categories
 
-**Context:** File URIs are already recognized, but Links/Files/Code/JSON are not
-available as dedicated filters. Stored types must remain stock-compatible.
+**Context:** File URIs were already recognized. Stored types must remain
+stock-compatible; dedicated Files/Code/JSON filters remain pending.
+
+Links completed 2026-09-10, including host subtitles and link icons. Model tests
+cover whole-value recognition/rejection, classification bounds, image/file/color
+precedence, original payloads, and stable history indices. The isolated UI verified
+link filtering and cycling in both directions. Direct shortcuts now follow the
+five visible pills: `Ctrl+1`/`2`/`3`/`4`/`5` select All/Text/Links/Images/Colors.
 
 **Acceptance criteria**
 
 - Add derived Links, Files, Code, and JSON categories using the spec's precedence
   and bounds. Valid JSON beats code heuristics; punctuation alone is not Code.
-- Make every category reachable through existing filter cycling. Preserve
-  `Ctrl+1`/`2`/`3`/`4` and single-image-file membership in Images.
+- Make every category reachable through existing filter cycling. Map `Ctrl+1`
+  through `Ctrl+5` to All/Text/Links/Images/Colors in visible pill order, and
+  preserve single-image-file membership in Images.
 - Classification does not change history order, action indices, stored types,
   original text, or the oversized placeholder behavior.
 
@@ -130,13 +139,20 @@ available as dedicated filters. Stored types must remain stock-compatible.
 
 - Run `node tests/clipboard-history.js` with classification/precedence and stable
   index cases drawn from the corpus, including invalid and oversized text.
-- In the isolated harness, cycle categories in both directions and verify the
-  four existing direct filter shortcuts still select their original categories.
+- In the isolated harness, cycle categories in both directions and verify all
+  five direct filter shortcuts select the matching visible pill.
 
 ## Task 3: Expose filter pills and truthful result counts
 
-**Context:** The current header shows only the active filter label. The result
-model stops after 60 matches, so its length cannot be used as the full match count.
+**Context:** Compact All/Text/Links/Images/Colors pills are implemented below
+search. The result model still stops after 60 matches, so its length cannot be
+used as the full match count. Full result counts and remaining categories stay pending.
+
+Filter controls completed 2026-09-10. The user requested smaller pills: 24-pixel
+target height, reduced padding, unchanged text size. Actual pointer clicks verified
+every category, selection state, query retention, and keyboard focus/navigation.
+Overflow selection was checked with the strip constrained while the overlay was
+hidden; the visible card stayed 940×640 with equal-width content panes.
 
 **Acceptance criteria**
 
@@ -191,29 +207,48 @@ prefix. Reuse the same categories/counts for typed queries and pills.
 or authoritative text timestamp is available.
 
 Pulled forward at the user's request and verified 2026-09-10: rounded icon/swatch
-frames, unframed image thumbnails, current-type subtitles, and a centered 50/50 split
-without changing card dimensions. Link-domain and new-category labels still
-depend on Task 2; title highlighting still depends on Task 4. Those criteria
-remain open rather than expanding this pass into classifiers.
+frames, current-type subtitles, and a centered 50/50 split. Link-domain labels
+were added in the Links/filter-controls slice.
+The current thumbnail direction supersedes rounded image clipping: images sit
+inside the same frame as other items with a 3-pixel theme-scaled inset.
+Other new-category labels still depend on Task 2; highlighting depends on Task 4.
+
+Whole-row height adaptation completed 2026-09-10. The card preserves its width
+and fits the largest whole-row capacity under the existing height ceiling and
+available logical screen height, using actual row/gap and control/inset sizes.
+The user rejected stepped touchpad scrolling: scrolling remains smooth, with no
+new snapping or input handlers. Search/filter/result count changes do not resize it.
+
+The actual default surface measured 940×620 with seven complete rows. Hidden
+probes covered logical screen heights from 320 to 1296, spacing/font scale changes,
+exact fit boundaries, fractional insets/gaps, and the screen-capped one-row fallback.
+Wheel input, fractional offsets, and inertial flicking remained unsnapped; filtering,
+all five numeric shortcuts, the editor, and expanded preview retained stable height.
 
 The isolated UI smoke covered literal markup, full counts beyond preview limits,
 missing-image fallback icons, selection/filtering, compact/expanded alpha previews,
 oversized edit refusal, removal, and metadata refresh after an edited copy. The
 packaged copy helper preserved the original hashless expression and whitespace
 through a temporary file transport, without replacing the system clipboard.
+Square, wide, and tall image fixtures visually verified padded shared frames,
+original image corners, preserved aspect ratios, and unchanged card/pane dimensions;
+missing images retained the existing fallback icon.
 
 **Acceptance criteria**
 
-- Add rounded frames for type icons and smaller color swatches, unframed image
-  thumbnails, and a muted metadata line without losing selection contrast, title
-  highlighting, mouse activation, or keyboard behavior. Failed images keep a type icon.
+- Use shared rounded frames for type icons, smaller color swatches, and padded
+  image thumbnails without rounding the images themselves. Add a muted metadata
+  line without losing selection contrast, title highlighting, mouse activation,
+  or keyboard behavior. Failed images keep a type icon.
 - Show exact word/line counts for retained text, type/domain for links, directory/
   count information for files, and available image MIME. Omit unknown fields.
 - Reuse metadata computed when history changes; do not rescan full text for every
   search keystroke or falsely report bounded-preview counts as full-entry counts.
 - Preserve bounded placeholders and long/unbroken/Unicode text behavior; row
   metadata must not turn unknown app/time/size into misleading values.
-- Center the divider for equal-width list and preview panes; preserve card dimensions.
+- Center the divider for equal-width list and preview panes; preserve card width.
+  Fit height to complete rows where one row and the controls fit within the screen
+  cap. Keep smooth scrolling unchanged and sizing independent of results/scroll position.
 
 **Verify**
 
@@ -221,8 +256,8 @@ through a temporary file transport, without replacing the system clipboard.
   cache invalidation after history replacement/edit/removal where needed.
 - Inspect corpus rows and selection transitions in the isolated harness, including
   long text, markup-like text, files, images, and translucent colors. Keep the
-  visible test widget at its original dimensions; constrained-width checks must
-  not resize the user's visible widget.
+  visible test widget at its normal computed size; run constrained-size/font probes
+  while hidden without changing the user's display configuration.
 
 ## Task 6: Enrich JSON and link previews
 
