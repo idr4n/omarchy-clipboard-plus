@@ -980,7 +980,7 @@ Item {
 
             Item {
               id: resultsPane
-              width: Math.floor(parent.width * 0.55)
+              width: parent.width / 2
               height: parent.height
               clip: true
 

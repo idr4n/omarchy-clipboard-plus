@@ -40,7 +40,7 @@ The implementation sequence is in [plan.md](plan.md).
   and validated image MIME. Do not fabricate app names, copy ages, or image sizes.
 - Use a consistent icon column: rounded frames around type icons and inset smaller
   color swatches, but unframed image thumbnails. Missing images retain a framed
-  type icon. Move only the divider to allocate 55% to results and 45% to previews;
+  type icon. Center the divider so results and previews have equal width;
   preserve the card's original width and height. Implement current-type subtitles
   before the new categories.
 - Count whitespace-delimited words and logical lines over complete retained text.

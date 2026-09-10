@@ -191,7 +191,7 @@ prefix. Reuse the same categories/counts for typed queries and pills.
 or authoritative text timestamp is available.
 
 Pulled forward at the user's request and verified 2026-09-10: rounded icon/swatch
-frames, unframed image thumbnails, current-type subtitles, and the 55/45 split
+frames, unframed image thumbnails, current-type subtitles, and a centered 50/50 split
 without changing card dimensions. Link-domain and new-category labels still
 depend on Task 2; title highlighting still depends on Task 4. Those criteria
 remain open rather than expanding this pass into classifiers.
@@ -213,7 +213,7 @@ through a temporary file transport, without replacing the system clipboard.
   search keystroke or falsely report bounded-preview counts as full-entry counts.
 - Preserve bounded placeholders and long/unbroken/Unicode text behavior; row
   metadata must not turn unknown app/time/size into misleading values.
-- Widen the list to 55% and reduce previews to 45% without changing card dimensions.
+- Center the divider for equal-width list and preview panes; preserve card dimensions.
 
 **Verify**
 

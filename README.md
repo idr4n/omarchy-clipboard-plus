@@ -24,7 +24,7 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 
 ## Row details
 
-The result list uses 55% of the split view without changing the overlay's outer
+The result list and preview have equal width without changing the overlay's outer
 dimensions. Type icons and small color swatches have rounded frames; image
 thumbnails are unframed and keep the same text alignment.
 
