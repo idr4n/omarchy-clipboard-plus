@@ -28,6 +28,7 @@ The result list and preview have equal width without changing the overlay's oute
 dimensions. Type icons, small color swatches, and image thumbnails share rounded
 frames. Images keep their original corners with a small inset, retain their aspect
 ratio, and keep the same text alignment.
+List color swatches rely on the shared frame rather than a separate colored outline.
 
 Subtitles show full word/line counts for retained text and colors, file counts
 and a shared directory when available, link domains, or image MIME. Words are whitespace-delimited;
@@ -40,8 +41,8 @@ image dimensions are not guessed.
 
 Compact All, Text, Links, Images, and Colors pills sit below search. Click a pill
 to change category without clearing the query or losing keyboard navigation.
-`Ctrl+T` cycles through that order; `Ctrl+Shift+T` cycles backward. The existing
-`Ctrl+1` / `2` / `3` / `4` shortcuts still select All / Text / Images / Colors.
+`Ctrl+T` cycles through that order; `Ctrl+Shift+T` cycles backward.
+`Ctrl+1` / `2` / `3` / `4` / `5` select All / Text / Links / Images / Colors.
 
 Links recognizes complete, trimmed `http://` and `https://` URLs and bare domains
 such as `example.com/docs`, up to 8,192 code units. The subtitle shows the host
@@ -127,7 +128,7 @@ plugin IDs remain separate; this only shares the compositor rule.
 | `Alt+Enter` | Open with Omarchy's clipboard opener |
 | `Ctrl+Space` | Open or close the expanded preview |
 | `Ctrl+E` | Edit the selected text entry |
-| `Ctrl+1` / `2` / `3` / `4` | Show all / text / images / colors |
+| `Ctrl+1` / `2` / `3` / `4` / `5` | Show all / text / links / images / colors |
 | `Ctrl+T` / `Ctrl+Shift+T` | Cycle filters forward / backward |
 | `Ctrl+R` | Reload history from disk |
 | `Delete` | Remove the selected history entry |

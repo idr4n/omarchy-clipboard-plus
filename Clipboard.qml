@@ -74,6 +74,7 @@ Item {
     id: swatch
     property color value: "transparent"
     property real cornerRadius: root.cornerRadius
+    property real borderWidth: Style.normalBorderWidth
     readonly property color checkerLight: Qt.rgba(root.background.r, root.background.g, root.background.b, 1)
     readonly property color checkerDark: Qt.tint(checkerLight, Util.alpha(root.foreground, 0.25))
 
@@ -125,7 +126,7 @@ Item {
       anchors.fill: parent
       radius: swatch.cornerRadius
       color: swatch.value
-      border.width: Style.normalBorderWidth
+      border.width: swatch.borderWidth
       border.color: root.border
     }
   }
@@ -876,17 +877,8 @@ Item {
           } else if (ctrl && event.key === Qt.Key_R) {
             root.scheduleHistoryReload()
             event.accepted = true
-          } else if (ctrl && event.key === Qt.Key_1) {
-            root.setTypeFilter("all")
-            event.accepted = true
-          } else if (ctrl && event.key === Qt.Key_2) {
-            root.setTypeFilter("text")
-            event.accepted = true
-          } else if (ctrl && event.key === Qt.Key_3) {
-            root.setTypeFilter("images")
-            event.accepted = true
-          } else if (ctrl && event.key === Qt.Key_4) {
-            root.setTypeFilter("colors")
+          } else if (ctrl && event.key >= Qt.Key_1 && event.key <= Qt.Key_5) {
+            root.setTypeFilter(root.typeFilters[event.key - Qt.Key_1])
             event.accepted = true
           } else if (ctrl && event.key === Qt.Key_T) {
             root.cycleTypeFilter(shift ? -1 : 1)
@@ -1101,6 +1093,7 @@ Item {
                         width: Math.max(1, parent.width - Style.space(16))
                         height: width
                         cornerRadius: Style.space(4)
+                        borderWidth: 0
                         value: row.swatchColor
                       }
                     }
@@ -1239,7 +1232,7 @@ Item {
         Text {
           width: parent.width
           height: root.footerHeight
-          text: root.historyError || "Ctrl+J/K move  ·  Ctrl+Space expand  ·  Ctrl+E edit  ·  Ctrl+1–4 filter  ·  Enter paste  ·  Shift+Enter copy"
+          text: root.historyError || "Ctrl+J/K move  ·  Ctrl+Space expand  ·  Ctrl+E edit  ·  Ctrl+1–5 filter  ·  Enter paste  ·  Shift+Enter copy"
           textFormat: Text.PlainText
           color: root.foreground
           opacity: root.historyError ? 0.9 : 0.5
