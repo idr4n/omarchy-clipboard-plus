@@ -9,6 +9,125 @@ function parsedEntries(values) {
   return result.entries;
 }
 
+const actions = [
+  { id: "open", label: "Open in browser", aliases: ["launch URL"] },
+  { id: "copy", label: "Copy", aliases: ["duplicate"] },
+  { id: "remove", label: "Remove entry", aliases: ["delete"] },
+];
+assert.deepEqual(history.filterActions(actions, " \t ").map((a) => a.id), ["open", "copy", "remove"]);
+assert.deepEqual(history.filterActions(actions, "BRW url").map((a) => a.id), ["open"]);
+assert.deepEqual(history.filterActions(actions, "dplt").map((a) => a.id), ["copy"]);
+// Every term must match the same action, and a term cannot span label/alias boundaries.
+assert.deepEqual(history.filterActions(actions, "open delete"), []);
+assert.deepEqual(history.filterActions(actions, "ydup"), []);
+assert.deepEqual(history.filterActions(actions.slice(1), "browser"), []);
+
+// ASCII-only cleanup must leave mixed separators, non-ASCII spaces, and internal tabs intact.
+const spacedLines = "  alpha \t\r\n\tbeta  \r \tγ\t\u2028  \u00a0delta\u00a0 \t\u2029\t\té\tmiddle \n\t ";
+for (const [action, expected] of [
+  ["trim-lines", "alpha\r\nbeta\rγ\u2028\u00a0delta\u00a0\u2029é\tmiddle\n"],
+  ["trim-trailing", "  alpha\r\n\tbeta\r \tγ\u2028  \u00a0delta\u00a0\u2029\t\té\tmiddle\n"],
+  ["remove-leading-tabs", "  alpha \t\r\nbeta  \r \tγ\t\u2028  \u00a0delta\u00a0 \t\u2029é\tmiddle \n "],
+]) {
+  assert.deepEqual(history.transformText(spacedLines, action), { status: "ok", text: expected }, action);
+}
+
+// Dedent compares literal prefixes, ignores ASCII-blank lines, and preserves their contents.
+for (const [input, expected] of [
+  [" \talpha\r\n \t  beta\n\t \r \t\tgamma\u2028 \t\u00a0\u2029 \tdelta\n",
+    "alpha\r\n  beta\n\t \r\tgamma\u2028\u00a0\u2029delta\n"],
+  [" \talpha\n  beta", "\talpha\n beta"],
+  ["  alpha\n\tbeta", "  alpha\n\tbeta"],
+  ["  alpha\n \u00a0\n", " alpha\n\u00a0\n"],
+  ["\t \r\n \t\u2028\n", "\t \r\n \t\u2028\n"],
+]) {
+  assert.deepEqual(history.transformText(input, "dedent"), { status: "ok", text: expected });
+}
+
+assert.deepEqual(
+  history.transformText(" alpha \r\n \t\n\tbeta \rca\tfe\u2028 \u00a0 \u2029last  \n", "join-lines"),
+  { status: "ok", text: "alpha beta ca\tfe \u00a0 last" },
+);
+assert.deepEqual(
+  history.transformText(" \t\r\nbeta\n\r\u00a0\u2028 \u2029alpha\r", "remove-empty-lines"),
+  { status: "ok", text: "beta\r\n\u00a0\r\nalpha\r\n" },
+);
+// Deduplication keeps exact whitespace/case, the first empty line, and ordinary object-key names.
+assert.deepEqual(
+  history.transformText("beta\r\nAlpha\nbeta\ralpha\u2028 beta\u2029__proto__\nconstructor\n__proto__\n\n\nlast\r\n",
+    "deduplicate-lines"),
+  { status: "ok", text: "beta\r\nAlpha\r\nalpha\r\n beta\r\n__proto__\r\nconstructor\r\n\r\nlast\r\n" },
+);
+
+const sortableLines = "beta\nAlpha\nalpha\n10\n2\nAlpha\n";
+for (const [action, expected] of [
+  ["sort-ascending", "10\n2\nAlpha\nalpha\nAlpha\nbeta\n"],
+  ["sort-descending", "beta\nAlpha\nalpha\nAlpha\n2\n10\n"],
+]) {
+  assert.deepEqual(history.transformText(sortableLines, action), { status: "ok", text: expected });
+}
+// Interior blanks and whitespace participate in ordering, but a final terminator does not.
+for (const [action, expected] of [
+  ["sort-ascending", "\r\n a\r\na\r\na \r\nb\r\n"],
+  ["sort-descending", "b\r\na \r\na\r\n a\r\n\r\n"],
+]) {
+  assert.deepEqual(history.transformText("b\r\n\r\na \n a\u2028a\u2029", action),
+    { status: "ok", text: expected });
+}
+assert.deepEqual(
+  history.transformText("Z\nä\nÅ\nA\u030a\nİ\ni\u0307\n", "sort-ascending"),
+  { status: "ok", text: "A\u030a\nİ\ni\u0307\nZ\nä\nÅ\n" },
+);
+assert.deepEqual(history.transformText("b\u2028a\u2029", "sort-ascending"),
+  { status: "ok", text: "a\u2028b\u2028" });
+assert.deepEqual(history.transformText("b\na", "sort-ascending"), { status: "ok", text: "a\nb" });
+assert.deepEqual(history.transformText("\n", "sort-ascending"), { status: "ok", text: "\n" });
+assert.deepEqual(history.transformText("\n\n", "deduplicate-lines"), { status: "ok", text: "\n" });
+
+// Case conversion is Unicode-aware and contextual, without trimming or normalization.
+assert.deepEqual(
+  history.transformText(" \tstraße ﬁ e\u0301 𐐨\r\nİ\u2028", "uppercase"),
+  { status: "ok", text: " \tSTRASSE FI E\u0301 𐐀\r\nİ\u2028" },
+);
+assert.deepEqual(
+  history.transformText(" \tΟΣ İ ẞ E\u0301 𐐀\r\n", "lowercase"),
+  { status: "ok", text: " \tος i\u0307 ß e\u0301 𐐨\r\n" },
+);
+// Empty drafts are previewable, even when every source line was removed.
+assert.deepEqual(history.transformText("", "trim-lines"), { status: "ok", text: "" });
+assert.deepEqual(history.transformText(" \t\r\n\t\u2028", "remove-empty-lines"), { status: "ok", text: "" });
+assert.deepEqual(history.transformText(" \t\r\n\t\u2028", "join-lines"), { status: "ok", text: "" });
+
+const transformationBody = "m".repeat(9000);
+const transformationEntries = parsedEntries(["  zeta\r\n  " + transformationBody + "\r\n  Alpha \t\r\n"]);
+const trimmedDraft = history.transformText(history.entryText(transformationEntries, 0), "trim-lines");
+assert.deepEqual(trimmedDraft, { status: "ok", text: "zeta\r\n" + transformationBody + "\r\nAlpha\r\n" });
+assert.deepEqual(
+  history.transformText(trimmedDraft.text, "sort-ascending"),
+  { status: "ok", text: "Alpha\r\n" + transformationBody + "\r\nzeta\r\n" },
+);
+
+assert.deepEqual(history.transformText({ text: "alpha" }, "uppercase"), { status: "invalid" });
+assert.deepEqual(history.transformText("alpha", "toString"), { status: "invalid" });
+assert.deepEqual(history.transformText("alpha", { toString: () => "uppercase" }), { status: "invalid" });
+// Both limits count UTF-16 code units, not UTF-8 bytes; oversized inputs cannot be shrunk into acceptance.
+assert.deepEqual(
+  history.transformText("é".repeat(history.maxEntryTextLength), "uppercase"),
+  { status: "ok", text: "É".repeat(history.maxEntryTextLength) },
+);
+const oversizedDraft = " ".repeat(history.maxEntryTextLength + 1);
+assert.deepEqual(history.transformText(oversizedDraft, "trim-lines"), { status: "oversized" });
+assert.deepEqual(history.transformText(oversizedDraft, "unknown"), { status: "invalid" });
+const expandingDraft = "ß".repeat(history.maxEntryTextLength / 2);
+assert.deepEqual(history.transformText(expandingDraft, "uppercase"),
+  { status: "ok", text: "SS".repeat(history.maxEntryTextLength / 2) });
+assert.deepEqual(history.transformText(expandingDraft + "ß", "uppercase"), { status: "oversized" });
+// Normalizing LF to the first CRLF can also expand an otherwise accepted full-size input.
+assert.deepEqual(
+  history.transformText("a\r\n" + "b".repeat(history.maxEntryTextLength - 5) + "\nc", "remove-empty-lines"),
+  { status: "oversized" },
+);
+
 assert.equal(history.utf8ByteLength("plain"), 5);
 assert.equal(history.utf8ByteLength("é"), 2);
 assert.equal(history.utf8ByteLength("😀"), 4);

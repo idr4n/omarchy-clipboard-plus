@@ -2,6 +2,8 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import QtQuick.Controls as Controls
+import QtQuick.Dialogs as NativeDialogs
 import qs.Commons
 import qs.Ui
 import "ClipboardHistory.js" as ClipboardHistory
@@ -20,6 +22,7 @@ Item {
   property bool editorOpen: false
   property string editorError: ""
   property string editorAcceptedText: ""
+  property string editorDisplayText: ""
   property bool editorTextGuardActive: false
   property bool doubleHistoryWriteNewline: false
   property bool pendingEditedCopyOnly: false
@@ -37,6 +40,52 @@ Item {
   property bool historyReadInFlight: false
   property bool historyReadPending: false
   property bool historyReadTimedOut: false
+
+  property bool actionsOpen: false
+  property bool actionsFromEditor: false
+  property string actionsQuery: ""
+  property int actionsSelectedIndex: 0
+  property var actionsCatalog: []
+  property var actionsHistory: null
+  property var actionsEntry: null
+  property int actionsHistoryIndex: -1
+  readonly property var matchingActions: ClipboardHistory.filterActions(root.actionsCatalog, root.actionsQuery)
+
+  readonly property var textActions: [
+    { id: "trim-lines", label: "Trim each line", aliases: ["strip whitespace"], transform: true },
+    { id: "trim-trailing", label: "Trim trailing whitespace", aliases: ["rstrip end spaces"], transform: true },
+    { id: "remove-leading-tabs", label: "Remove leading tabs", aliases: ["untab indent"], transform: true },
+    { id: "dedent", label: "Dedent", aliases: ["remove common indentation"], transform: true },
+    { id: "join-lines", label: "Join lines", aliases: ["single line flatten"], transform: true },
+    { id: "remove-empty-lines", label: "Remove empty lines", aliases: ["remove blank lines"], transform: true },
+    { id: "deduplicate-lines", label: "Remove duplicate lines", aliases: ["dedup unique"], transform: true },
+    { id: "sort-ascending", label: "Sort lines ascending", aliases: ["sort asc alphabetize a-z"], transform: true },
+    { id: "sort-descending", label: "Sort lines descending", aliases: ["sort desc z-a"], transform: true },
+    { id: "uppercase", label: "Uppercase", aliases: ["upper caps"], transform: true },
+    { id: "lowercase", label: "Lowercase", aliases: ["lower"], transform: true }
+  ]
+
+  property int externalGeneration: 0
+  property bool externalBusy: false
+  property var externalContext: null
+  property var externalJob: null
+
+  onHistoryChanged: root.invalidateEntryActions()
+  onHistoryReadPendingChanged: if (root.historyReadPending) root.invalidateEntryActions()
+  onHistoryReadInFlightChanged: if (root.historyReadInFlight) root.invalidateEntryActions()
+  onHistoryWritePendingChanged: if (root.historyWritePending) root.invalidateEntryActions()
+  onOpenedChanged: if (!root.opened) {
+    root.closeActions(false)
+    root.cancelExternalAction()
+  }
+  onEditorOpenChanged: if (!root.editorOpen && root.actionsFromEditor) root.closeActions()
+  onClearConfirmOpenChanged: if (root.clearConfirmOpen) root.closeActions(false)
+  onMatchingActionsChanged: {
+    root.actionsSelectedIndex = 0
+    Qt.callLater(function() {
+      if (root.actionsOpen) root.selectAction(0)
+    })
+  }
 
   property string expandedKind: ""
   property string expandedText: ""
@@ -180,6 +229,8 @@ Item {
   }
 
   function open(payloadJson) {
+    root.cancelExternalAction()
+    root.closeActions(false)
     root.cancelEditedHistoryAction()
     root.opened = true
     root.filterText = ""
@@ -197,6 +248,7 @@ Item {
   }
 
   function close() {
+    root.cancelExternalAction()
     root.cancelEditedHistoryAction()
     root.cancelClearHistory(false)
     root.previewExpanded = false
@@ -207,7 +259,7 @@ Item {
   }
 
   function toggle() {
-    if (root.opened) root.close()
+    if (root.opened && !root.externalBusy) root.close()
     else root.open("{}")
   }
 
@@ -457,6 +509,7 @@ Item {
         colorHex: color ? color.hex : "",
         colorRgb: color ? color.rgb : "",
         colorHsl: color ? color.hsl : "",
+        linkDomain: row.linkDomain || "",
         path: row.path,
         mime: row.mime,
         historyIndex: row.index
@@ -585,6 +638,280 @@ Item {
     Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-clipboard-open", "--history-index", String(row.historyIndex)])
   }
 
+  function invalidateEntryActions() {
+    if (root.actionsOpen && !root.actionsFromEditor) root.closeActions()
+  }
+
+  function isActionsShortcut(event) {
+    return event.key === Qt.Key_Period && event.modifiers === Qt.ControlModifier
+  }
+
+  function toggleActions() {
+    if (root.actionsOpen) {
+      root.closeActions()
+      return
+    }
+    if (!root.opened || root.clearConfirmOpen || root.externalBusy) return
+
+    var catalog
+    root.actionsFromEditor = root.editorOpen
+    if (root.actionsFromEditor) {
+      catalog = [
+        { id: "paste", label: "Paste edited text", aliases: ["insert"], shortcut: "Ctrl+Enter" },
+        { id: "copy", label: "Copy edited text", aliases: ["copy only"], shortcut: "Ctrl+Shift+Enter" }
+      ].concat(root.textActions)
+    } else {
+      var row = root.selectedRow()
+      if (!row || root.historyActionBlocked() || root.historyStatus !== "ok") return
+      root.actionsHistory = root.history
+      root.actionsHistoryIndex = row.historyIndex
+      root.actionsEntry = root.history[row.historyIndex]
+      catalog = []
+      if (row.entryType === "link") {
+        catalog.push({ id: "open-link", label: "Open in browser", aliases: ["launch URL", "visit link"], shortcut: "Alt+Enter" })
+        catalog.push({ id: "copy-domain", label: "Copy domain", aliases: ["hostname host"] })
+      } else if (row.entryType === "color") {
+        catalog.push({ id: "copy-hex", label: "Copy hex", aliases: ["hexadecimal CSS"] })
+        catalog.push({ id: "copy-rgb", label: "Copy RGB", aliases: ["rgba"] })
+        catalog.push({ id: "copy-hsl", label: "Copy HSL", aliases: ["hsla"] })
+        catalog.push({ id: "edit-color", label: "Edit color expression", aliases: ["modify color text"], shortcut: "Ctrl+E" })
+        catalog.push({ id: "pick-color", label: "Pick screen color", aliases: ["eyedropper hyprpicker"] })
+      }
+      if (row.entryType === "image" || (row.entryType === "file" && row.previewImage)) {
+        catalog.push({ id: "copy-image-path", label: "Copy image path", aliases: ["filename location"] })
+        catalog.push({ id: "open-folder", label: "Open containing folder", aliases: ["directory reveal file manager"] })
+        catalog.push({ id: "save-image", label: "Save image copy as…", aliases: ["save as export duplicate"] })
+        catalog.push({ id: "edit-image", label: "Edit a copy in Tensaku", aliases: ["annotate screenshot editor"] })
+      }
+      catalog.push({ id: "paste", label: "Paste", aliases: ["insert"], shortcut: "Enter" })
+      catalog.push({ id: "copy", label: "Copy", aliases: ["copy only"], shortcut: "Shift+Enter" })
+      var textEntry = row.entryType !== "image" && row.entryType !== "oversized" && row.entryType !== "file"
+      if (textEntry) {
+        if (row.entryType !== "color")
+          catalog.push({ id: "edit", label: "Edit text", aliases: ["modify"], shortcut: "Ctrl+E" })
+        catalog = catalog.concat(root.textActions)
+      }
+      catalog.push({ id: "remove", label: "Remove entry", aliases: ["delete"], shortcut: "Delete", destructive: true })
+    }
+    root.actionsQuery = ""
+    root.actionsCatalog = catalog
+    root.actionsSelectedIndex = 0
+    root.actionsOpen = true
+    root.disarmPointer()
+    Qt.callLater(function() {
+      if (root.actionsOpen) actionsSearch.forceActiveFocus()
+    })
+  }
+
+  function closeActions(restoreFocus) {
+    if (!root.actionsOpen) return
+    root.actionsOpen = false
+    root.actionsQuery = ""
+    root.actionsCatalog = []
+    root.actionsFromEditor = false
+    root.actionsHistory = null
+    root.actionsEntry = null
+    root.actionsHistoryIndex = -1
+    root.disarmPointer()
+    if (restoreFocus === false) return
+    Qt.callLater(function() {
+      if (!root.opened || root.actionsOpen || root.externalBusy) return
+      if (root.editorOpen) textEditor.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
+  function selectAction(delta) {
+    var count = root.matchingActions.length
+    if (count === 0) return
+    root.actionsSelectedIndex = (root.actionsSelectedIndex + delta + count) % count
+    actionsList.forceLayout()
+    actionsList.positionViewAtIndex(root.actionsSelectedIndex, ListView.Contain)
+  }
+
+  function executeAction(index) {
+    if (!root.actionsOpen || index < 0 || index >= root.matchingActions.length) return
+    var selectedAction = root.matchingActions[index]
+    var action = selectedAction.id
+    var fromEditor = root.actionsFromEditor
+    var row = root.selectedRow()
+    if (fromEditor) {
+      if (!root.editorOpen) {
+        root.closeActions()
+        return
+      }
+    } else if (!row || root.actionsHistory !== root.history
+        || root.actionsHistoryIndex !== row.historyIndex
+        || root.actionsEntry !== root.history[row.historyIndex]
+        || root.historyActionBlocked()) {
+      root.closeActions()
+      return
+    }
+
+    root.closeActions()
+    if (selectedAction.transform) {
+      root.transformEditorText(action, fromEditor ? root.editorAcceptedText : ClipboardHistory.entryText(root.history, row.historyIndex))
+    } else if (fromEditor) {
+      if (action === "paste" || action === "copy") root.finishEditing(action === "copy")
+    } else if (action === "paste") {
+      root.applySelected(row)
+    } else if (action === "copy") {
+      root.copySelected(row)
+    } else if (action === "open-link") {
+      root.openSelected(row)
+    } else if (action === "edit" || action === "edit-color") {
+      root.startEditor()
+    } else if (action === "copy-domain") {
+      root.submitText(row.linkDomain, true)
+    } else if (action === "copy-hex" || action === "copy-rgb" || action === "copy-hsl") {
+      root.submitText(action === "copy-hex" ? row.colorHex : (action === "copy-rgb" ? row.colorRgb : row.colorHsl), true)
+    } else if (action === "pick-color") {
+      root.startColorPicker()
+    } else if (action === "copy-image-path" || action === "open-folder" || action === "save-image" || action === "edit-image") {
+      root.startImageAction(action, row)
+    } else if (action === "remove") {
+      if (root.previewExpanded) root.closeExpandedPreview()
+      root.removeDisplayIndex(root.selectedIndex)
+    }
+  }
+
+  function validActionPath(path) {
+    return typeof path === "string" && path.length > 0 && path.length <= ClipboardHistory.maxImagePathLength
+      && path.charAt(0) === "/" && !/[\u0000\r\n]/.test(path)
+  }
+
+  function imageSuffix(row) {
+    if (ClipboardHistory.isImagePath(row.path))
+      return row.path.slice(row.path.lastIndexOf(".") + 1).toLowerCase()
+    var suffix = String(row.mime || "").slice(6)
+    return ClipboardHistory.isImagePath("image." + suffix) ? suffix : ""
+  }
+
+  function cancelExternalAction() {
+    var context = root.externalContext
+    var job = root.externalJob
+    root.externalGeneration++
+    root.externalContext = null
+    root.externalJob = null
+    root.externalBusy = false
+    if (context && context.kind === "pick-color" && job && job.running) job.signal(15)
+    if (saveImageDialog.visible) saveImageDialog.close()
+  }
+
+  function beginExternalAction(kind, path, suffix) {
+    root.cancelExternalAction()
+    root.closeActions(false)
+    root.historyError = ""
+    root.editorError = ""
+    var context = { generation: root.externalGeneration, kind: kind, path: path || "", suffix: suffix || "" }
+    root.externalContext = context
+    root.externalBusy = true
+    return context
+  }
+
+  function externalActionCurrent(context) {
+    return context && root.opened && root.externalContext
+      && context.generation === root.externalGeneration
+  }
+
+  function finishExternalAction(context, error, closeOverlay) {
+    if (!root.externalActionCurrent(context)) return
+    root.externalContext = null
+    root.externalJob = null
+    root.externalBusy = false
+    if (error) root.reportTextError(error)
+    if (closeOverlay) {
+      root.close()
+      return
+    }
+    Qt.callLater(function() {
+      if (!root.opened || root.externalBusy || context.generation !== root.externalGeneration) return
+      if (root.editorOpen) textEditor.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
+  function runExternalProcess(context, phase, command) {
+    if (!root.externalActionCurrent(context)) return
+    // env reports missing executables through a normal exit instead of leaving a failed QProcess start.
+    var job = externalProcessComponent.createObject(root, {
+      request: context, phase: phase, command: ["/usr/bin/env"].concat(command)
+    })
+    if (!job) {
+      root.finishExternalAction(context, "Could not start clipboard action", false)
+      return
+    }
+    root.externalJob = job
+    job.requested = true
+    job.running = true
+  }
+
+  function runFileOperation(context, phase, operation, operands) {
+    var helper = ClipboardHistory.decodeFileUri(String(Qt.resolvedUrl("ClipboardFiles.sh")))
+    root.runExternalProcess(context, phase, ["bash", helper, operation].concat(operands))
+  }
+
+  function startColorPicker() {
+    var context = root.beginExternalAction("pick-color")
+    root.runExternalProcess(context, "picker", ["hyprpicker", "--format", "hex", "--no-fancy"])
+  }
+
+  function startImageAction(kind, row) {
+    var suffix = root.imageSuffix(row)
+    if (!root.validActionPath(row.path) || !suffix) {
+      root.reportTextError("Image action requires a valid local image path")
+      return
+    }
+    var context = root.beginExternalAction(kind, row.path, suffix)
+    if (kind === "edit-image")
+      root.runFileOperation(context, "editor", "edit", [context.path, context.suffix])
+    else
+      root.runFileOperation(context, "check", "check", [context.path])
+  }
+
+  function externalProcessFinished(context, phase, exitCode, output, errors) {
+    if (!root.externalActionCurrent(context)) return
+    if (phase === "picker" && !output.trim() && !errors.trim() && (exitCode === 0 || exitCode === 2)) {
+      root.finishExternalAction(context, "", false)
+      return
+    }
+    if (exitCode !== 0) {
+      var detail = errors.trim().replace(/\s+/g, " ").slice(0, 500)
+      root.finishExternalAction(context, "Clipboard action failed" + (detail ? ": " + detail : " (exit " + exitCode + ")"), false)
+      return
+    }
+    if (phase === "picker") {
+      var color = ClipboardHistory.colorDetails(output.trim())
+      root.finishExternalAction(context, color ? "" : "Color picker returned an invalid color", false)
+      if (color) root.openEditorText(color.hex)
+    } else if (phase === "check" && context.kind === "copy-image-path") {
+      root.finishExternalAction(context, "", false)
+      root.submitText(context.path, true)
+    } else if (phase === "check" && context.kind === "open-folder") {
+      var directory = context.path.slice(0, context.path.lastIndexOf("/")) || "/"
+      root.runExternalProcess(context, "folder", ["xdg-open", directory])
+    } else if (phase === "check" && context.kind === "save-image") {
+      saveImageDialog.actionRequest = context
+      saveImageDialog.defaultSuffix = context.suffix
+      saveImageDialog.nameFilters = [context.suffix.toUpperCase() + " images (*." + context.suffix + ")"]
+      saveImageDialog.currentFolder = Util.fileUrl(Quickshell.env("HOME") + "/Pictures")
+      saveImageDialog.selectedFile = Util.fileUrl(Quickshell.env("HOME") + "/Pictures/Clipboard image." + context.suffix)
+      saveImageDialog.open()
+    } else {
+      root.finishExternalAction(context, "", phase === "folder")
+    }
+  }
+
+  function saveImageCopy(context, fileUrl) {
+    if (!root.externalActionCurrent(context)) return
+    var destination = ClipboardHistory.decodeFileUri(String(fileUrl))
+    if (!root.validActionPath(destination) || !destination.toLowerCase().endsWith("." + context.suffix)) {
+      root.finishExternalAction(context, "Choose a local ." + context.suffix + " destination; image copies are not converted", false)
+      return
+    }
+    root.runFileOperation(context, "copy", "copy", [context.path, destination])
+  }
+
   function openExpandedPreview() {
     var row = root.selectedRow()
     if (!row) return
@@ -630,14 +957,42 @@ Item {
       return
     }
 
-    var text = ClipboardHistory.entryText(root.history, row.historyIndex)
+    root.openEditorText(ClipboardHistory.entryText(root.history, row.historyIndex))
+  }
+
+  function reportTextError(message) {
+    if (root.editorOpen) root.editorError = message
+    else root.historyError = message
+  }
+
+  function transformEditorText(action, text) {
+    var result = ClipboardHistory.transformText(text, action)
+    if (result.status !== "ok") {
+      root.reportTextError(result.status === "oversized"
+        ? "Transformation exceeds the 1 MiB limit; draft unchanged"
+        : "Could not transform clipboard text")
+      return
+    }
+    root.openEditorText(result.text)
+  }
+
+  function openEditorText(text) {
+    if (typeof text !== "string" || text.length > ClipboardHistory.maxEntryTextLength) {
+      root.reportTextError("Clipboard text exceeds the 1 MiB limit")
+      return
+    }
     root.previewExpanded = false
     root.editorError = ""
     root.editorAcceptedText = text
     root.editorOpen = true
+    // TextEdit normalizes paragraph separators; retain the complete draft until a user edit.
+    root.editorTextGuardActive = true
     textEditor.text = text
+    root.editorDisplayText = textEditor.text
+    root.editorTextGuardActive = false
     editorScroll.contentY = 0
     Qt.callLater(function() {
+      if (!root.opened || !root.editorOpen || root.externalBusy) return
       textEditor.forceActiveFocus()
       textEditor.cursorPosition = textEditor.length
     })
@@ -653,31 +1008,35 @@ Item {
     root.editorOpen = false
     root.editorError = ""
     root.editorAcceptedText = ""
+    root.editorDisplayText = ""
     textEditor.text = ""
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function finishEditing(copyOnly) {
+    root.submitText(root.editorAcceptedText, copyOnly)
+  }
+
+  function submitText(text, copyOnly) {
     if (root.historyActionBlocked()) {
-      root.editorError = root.historyError
+      root.reportTextError(root.historyError)
       return
     }
     if (root.historyStatus !== "ok") {
-      root.editorError = "Clipboard history is unavailable; press Ctrl+R before saving"
+      root.reportTextError("Clipboard history is unavailable; press Ctrl+R before saving")
       return
     }
 
-    var text = textEditor.text
-    if (text.trim().length === 0) {
-      root.editorError = "Clipboard text cannot be blank"
+    if (typeof text !== "string" || text.trim().length === 0) {
+      root.reportTextError("Clipboard text cannot be blank")
       return
     }
     if (text.length > ClipboardHistory.maxEntryTextLength) {
-      root.editorError = "Clipboard text exceeds the 1 MiB limit"
+      root.reportTextError("Clipboard text exceeds the 1 MiB limit")
       return
     }
     if (root.pendingEditedSave) {
-      root.editorError = "Clipboard operation already in progress"
+      root.reportTextError("Clipboard operation already in progress")
       return
     }
 
@@ -699,11 +1058,11 @@ Item {
       root.historyLimit
     )
     if (added.status !== "ok") {
-      root.editorError = added.containsOversized
+      root.reportTextError(added.containsOversized
         ? "History with oversized entries can only be cleared or changed in the stock manager"
         : (added.status === "oversized"
           ? "Clipboard history exceeds its size limit"
-          : "Clipboard history is invalid")
+          : "Clipboard history is invalid"))
       return
     }
 
@@ -713,7 +1072,7 @@ Item {
     if (!root.saveHistory()) {
       root.history = previousHistory
       root.rebuildDisplay()
-      root.editorError = root.historyError || "Could not save edited clipboard text"
+      root.reportTextError(root.historyError || "Could not save clipboard text")
       return
     }
 
@@ -780,6 +1139,43 @@ Item {
     onExited: function(exitCode, exitStatus) { root.finishHistoryRead(exitCode) }
   }
 
+  Component {
+    id: externalProcessComponent
+    Process {
+      id: job
+      property var request
+      property string phase
+      property bool requested: false
+      property bool finished: false
+      property string output: ""
+      property string errors: ""
+
+      stdout: SplitParser {
+        onRead: function(data) {
+          if (job.output.length < 4096) job.output += (data + "\n").slice(0, 4096 - job.output.length)
+        }
+      }
+      stderr: SplitParser {
+        onRead: function(data) {
+          if (job.errors.length < 4096) job.errors += (data + "\n").slice(0, 4096 - job.errors.length)
+        }
+      }
+      function complete(exitCode) {
+        if (job.finished) return
+        job.finished = true
+        if (root.externalJob === job) root.externalJob = null
+        root.externalProcessFinished(job.request, job.phase, exitCode, job.output, job.errors)
+        job.destroy()
+      }
+      onExited: function(exitCode, exitStatus) { job.complete(exitCode) }
+      onRunningChanged: if (!running && job.requested && !job.finished) {
+        Qt.callLater(function() {
+          if (job && !job.finished) job.complete(-1)
+        })
+      }
+    }
+  }
+
   Timer {
     id: historyReloadTimer
     interval: 75
@@ -802,12 +1198,12 @@ Item {
 
   PanelWindow {
     id: panel
-    visible: root.opened
+    visible: root.opened && !root.externalBusy
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     WlrLayershell.namespace: "omarchy-clipboard"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: root.opened && !root.externalBusy ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
 
     Rectangle {
@@ -817,7 +1213,10 @@ Item {
 
     MouseArea {
       anchors.fill: parent
-      onClicked: root.close()
+      onClicked: {
+        if (root.actionsOpen) root.closeActions()
+        else root.close()
+      }
     }
 
     BorderSurface {
@@ -829,6 +1228,16 @@ Item {
       color: root.background
       borderSpec: root.borderSpec
       padding: root.contentMargin
+
+      NativeDialogs.FileDialog {
+        id: saveImageDialog
+        property var actionRequest: null
+        title: "Save image copy — existing files are never replaced"
+        fileMode: NativeDialogs.FileDialog.SaveFile
+        options: NativeDialogs.FileDialog.DontConfirmOverwrite
+        onAccepted: root.saveImageCopy(actionRequest, selectedFile)
+        onRejected: root.finishExternalAction(actionRequest, "", false)
+      }
 
       MouseArea { anchors.fill: parent; onClicked: {} }
 
@@ -847,6 +1256,17 @@ Item {
 
           var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
           var shift = (event.modifiers & Qt.ShiftModifier) !== 0
+
+          if (root.actionsOpen) {
+            actionsSearch.forceActiveFocus()
+            event.accepted = true
+            return
+          }
+          if (root.isActionsShortcut(event)) {
+            root.toggleActions()
+            event.accepted = true
+            return
+          }
 
           if (root.previewExpanded) {
             if (event.key === Qt.Key_Escape || (ctrl && event.key === Qt.Key_Space)) {
@@ -1239,7 +1659,7 @@ Item {
         }
 
         Text {
-          width: parent.width
+          width: Math.max(0, parent.width - actionsButton.width - root.contentSpacing)
           height: root.footerHeight
           text: root.historyError || "Ctrl+J/K move  ·  Ctrl+Space expand  ·  Ctrl+E edit  ·  Ctrl+1–5 filter  ·  Enter paste  ·  Shift+Enter copy"
           textFormat: Text.PlainText
@@ -1277,6 +1697,7 @@ Item {
 
         Text {
           anchors.right: parent.right
+          anchors.rightMargin: actionsButton.width + root.contentSpacing
           anchors.verticalCenter: expandedTitle.verticalCenter
           text: "Ctrl+Space or Esc to return"
           color: root.foreground
@@ -1290,7 +1711,7 @@ Item {
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: expandedTitle.bottom
-          anchors.bottom: parent.bottom
+          anchors.bottom: expandedTruncation.top
           source: root.expandedImage
           sourceSize.width: Math.max(1, root.cardWidth)
           sourceSize.height: Math.max(1, root.cardHeight)
@@ -1333,12 +1754,13 @@ Item {
 
         Text {
           id: expandedTruncation
-          visible: root.expandedKind === "text" && root.expandedTruncated
+          visible: !!root.historyError || (root.expandedKind === "text" && root.expandedTruncated)
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.bottom: parent.bottom
           height: visible ? root.footerHeight : 0
-          text: "Preview capped at 64 KiB; Ctrl+E opens the complete text"
+          text: root.historyError || "Preview capped at 64 KiB; Ctrl+E opens the complete text"
+          textFormat: Text.PlainText
           color: Color.urgent
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -1371,6 +1793,7 @@ Item {
 
         Text {
           anchors.right: parent.right
+          anchors.rightMargin: actionsButton.width + root.contentSpacing
           anchors.verticalCenter: editorTitle.verticalCenter
           text: "Ctrl+Enter paste  ·  Ctrl+Shift+Enter or Ctrl+S copy  ·  Esc cancel"
           color: root.foreground
@@ -1410,11 +1833,13 @@ Item {
               wrapMode: TextEdit.WrapAnywhere
               textFormat: TextEdit.PlainText
               selectByMouse: true
+              persistentSelection: true
 
               onTextChanged: {
-                if (root.editorTextGuardActive) return
+                if (root.editorTextGuardActive || text === root.editorDisplayText) return
                 if (text.length <= ClipboardHistory.maxEntryTextLength) {
                   root.editorAcceptedText = text
+                  root.editorDisplayText = text
                   if (root.editorError === "Clipboard text exceeds the 1 MiB limit")
                     root.editorError = ""
                   return
@@ -1437,6 +1862,11 @@ Item {
               Keys.onPressed: function(event) {
                 var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
                 var shift = (event.modifiers & Qt.ShiftModifier) !== 0
+                if (root.isActionsShortcut(event)) {
+                  root.toggleActions()
+                  event.accepted = true
+                  return
+                }
                 if (event.key === Qt.Key_Escape) {
                   root.closeEditor()
                   event.accepted = true
@@ -1462,10 +1892,255 @@ Item {
           anchors.bottom: parent.bottom
           height: root.editorError ? root.footerHeight : 0
           text: root.editorError
+          textFormat: Text.PlainText
           color: Color.urgent
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           verticalAlignment: Text.AlignVCenter
+        }
+      }
+
+      Button {
+        id: actionsButton
+        anchors.right: parent.right
+        anchors.rightMargin: card.contentRightInset
+        y: root.previewExpanded || root.editorOpen
+          ? card.contentTopInset + (root.headerHeight - height) / 2
+          : card.height - card.contentBottomInset - (root.footerHeight + height) / 2
+        height: Math.max(Style.space(24), implicitHeight)
+        text: "Actions · Ctrl+."
+        visible: !root.clearConfirmOpen
+        enabled: root.editorOpen || displayModel.count > 0
+        opacity: enabled ? 1 : 0.45
+        foreground: root.foreground
+        accent: root.selectedText
+        background: Util.alpha(root.foreground, 0.055)
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        horizontalPadding: Style.space(10)
+        verticalPadding: Style.space(2)
+        onClicked: root.toggleActions()
+      }
+
+      FocusScope {
+        id: actionsOverlay
+        anchors.fill: parent
+        visible: root.actionsOpen
+        z: 30
+        Keys.priority: Keys.AfterItem
+        Keys.onPressed: function(event) { event.accepted = true }
+        Keys.onReleased: function(event) { event.accepted = true }
+
+        Rectangle {
+          anchors.fill: parent
+          radius: root.cornerRadius
+          color: root.scrim
+        }
+        MouseArea {
+          anchors.fill: parent
+          hoverEnabled: true
+          onClicked: root.closeActions()
+          onWheel: function(wheel) { wheel.accepted = true }
+        }
+
+        BorderSurface {
+          id: actionsCard
+          readonly property real actionHeight: Math.max(Style.space(36), Style.font.caption + Style.space(16))
+          readonly property real separatorHeight: Style.space(8)
+          readonly property bool hasSeparator: root.matchingActions.length > 1
+            && root.matchingActions[root.matchingActions.length - 1].destructive === true
+          readonly property real maximumHeight: Math.max(0, card.height - anchors.bottomMargin - card.contentTopInset)
+          width: Math.max(0, Math.min(Style.space(430), parent.width - root.contentMargin * 2))
+          height: Math.min(maximumHeight,
+            contentTopInset + contentBottomInset + actionsHeading.height
+              + actionsSearchFrame.height + root.contentSpacing * 2
+              + Math.max(actionHeight, Math.min(8, root.matchingActions.length) * actionHeight
+                + (hasSeparator && root.matchingActions.length <= 8 ? separatorHeight : 0)))
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          anchors.rightMargin: card.contentRightInset
+          anchors.bottomMargin: card.contentBottomInset + root.footerHeight + root.contentSpacing
+          color: root.background
+          borderSpec: root.borderSpec
+          radius: root.cornerRadius
+          padding: root.contentMargin
+
+          MouseArea {
+            anchors.fill: parent
+            onClicked: actionsSearch.forceActiveFocus()
+            onWheel: function(wheel) { wheel.accepted = true }
+          }
+
+          Item {
+            anchors.fill: parent
+            anchors.topMargin: actionsCard.contentTopInset
+            anchors.rightMargin: actionsCard.contentRightInset
+            anchors.bottomMargin: actionsCard.contentBottomInset
+            anchors.leftMargin: actionsCard.contentLeftInset
+            clip: true
+
+            Text {
+              id: actionsHeading
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              height: Style.font.title + Style.space(6)
+              text: "Actions"
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+
+            Rectangle {
+              id: actionsSearchFrame
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: actionsHeading.bottom
+              anchors.topMargin: root.contentSpacing
+              height: Math.max(Style.space(38), Style.font.title + Style.space(16))
+              color: Util.alpha(root.foreground, 0.035)
+              border.width: Style.normalBorderWidth
+              border.color: root.border
+              radius: root.cornerRadius
+
+              TextInput {
+                id: actionsSearch
+                anchors.fill: parent
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                text: root.actionsQuery
+                onTextEdited: root.actionsQuery = text
+                color: root.foreground
+                selectionColor: root.selectedBackground
+                selectedTextColor: root.selectedText
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+                verticalAlignment: TextInput.AlignVCenter
+                selectByMouse: true
+                clip: true
+                activeFocusOnTab: false
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  var ctrl = event.modifiers === Qt.ControlModifier
+                  if (event.key === Qt.Key_Escape || root.isActionsShortcut(event)) {
+                    root.closeActions()
+                  } else if (event.key === Qt.Key_Up || (ctrl && event.key === Qt.Key_K)) {
+                    root.selectAction(-1)
+                  } else if (event.key === Qt.Key_Down || (ctrl && event.key === Qt.Key_J)) {
+                    root.selectAction(1)
+                  } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                      && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.KeypadModifier)) {
+                    root.executeAction(root.actionsSelectedIndex)
+                  } else if (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab) {
+                    event.accepted = false
+                    return
+                  }
+                  event.accepted = true
+                }
+              }
+
+              Text {
+                anchors.fill: actionsSearch
+                visible: actionsSearch.text.length === 0
+                text: "Search actions…"
+                textFormat: Text.PlainText
+                color: root.foreground
+                opacity: 0.5
+                font: actionsSearch.font
+                verticalAlignment: Text.AlignVCenter
+              }
+            }
+
+            ListView {
+              id: actionsList
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.rightMargin: actionsScrollIndicator.visible ? Style.space(9) : 0
+              anchors.top: actionsSearchFrame.bottom
+              anchors.topMargin: root.contentSpacing
+              anchors.bottom: parent.bottom
+              model: root.matchingActions
+              currentIndex: root.actionsSelectedIndex
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+
+              Controls.ScrollIndicator.vertical: Controls.ScrollIndicator {
+                id: actionsScrollIndicator
+                parent: actionsList.parent
+                anchors.top: actionsList.top
+                anchors.bottom: actionsList.bottom
+                anchors.right: parent.right
+                width: Style.space(3)
+                padding: 0
+                visible: actionsList.height > 0 && actionsList.contentHeight > actionsList.height
+                contentItem: Rectangle {
+                  implicitWidth: Style.space(3)
+                  implicitHeight: Style.space(12)
+                  radius: width / 2
+                  color: Util.alpha(root.foreground, 0.55)
+                }
+              }
+
+              delegate: Item {
+                id: actionRow
+                required property int index
+                required property var modelData
+                readonly property bool separated: modelData.destructive === true && index > 0
+                width: ListView.view.width
+                height: actionsCard.actionHeight + (separated ? actionsCard.separatorHeight : 0)
+
+                Rectangle {
+                  visible: actionRow.separated
+                  width: parent.width
+                  height: Style.normalBorderWidth
+                  y: (actionsCard.separatorHeight - height) / 2
+                  color: root.border
+                  opacity: 0.5
+                }
+
+                Button {
+                  width: parent.width
+                  height: actionsCard.actionHeight
+                  anchors.bottom: parent.bottom
+                  text: actionRow.modelData.label
+                  leftAlign: true
+                  hasCursor: root.actionsSelectedIndex === actionRow.index
+                  foreground: actionRow.modelData.destructive ? Color.urgent : root.foreground
+                  accent: actionRow.modelData.destructive ? Color.urgent : root.selectedText
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  horizontalPadding: Style.space(10)
+                  verticalPadding: Style.space(4)
+                  onClicked: root.executeAction(actionRow.index)
+
+                  Text {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Style.space(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: actionRow.modelData.shortcut || ""
+                    textFormat: Text.PlainText
+                    color: root.foreground
+                    opacity: 0.5
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+              }
+            }
+
+            Text {
+              anchors.centerIn: actionsList
+              visible: root.matchingActions.length === 0
+              text: "No matching actions"
+              textFormat: Text.PlainText
+              color: root.foreground
+              opacity: 0.6
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
         }
       }
     }

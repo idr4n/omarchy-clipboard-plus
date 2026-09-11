@@ -1,7 +1,7 @@
 # Clipboard discovery and presentation
 
-Status: in progress; expanded colors, Links, compact filter pills, and current-type two-line rows are implemented. Remaining discovery work is planned.
-Last updated: 2026-09-10
+Status: expanded colors, Links, compact filter pills, and current-type two-line rows are implemented. Remaining discovery work stays queued; the prioritized actions feature is implemented, verified, and reviewed.
+Last updated: 2026-09-11
 Branch: `feat/clipboard-discovery`
 
 ## What
@@ -11,6 +11,11 @@ structured/fuzzy search, and richer previews explored in
 [alanfortlink/clipboard-history](https://github.com/alanfortlink/clipboard-history).
 Keep our inline editor, keyboard workflow, and lightweight stock-history integration.
 The implementation sequence is in [plan.md](plan.md).
+
+The user prioritized [searchable contextual actions](../clipboard-actions/spec.md)
+on 2026-09-10. That feature is now implemented, verified, and reviewed.
+The requirements below remain the contract for later discovery work,
+not prerequisites for the actions menu.
 
 ## Requirements
 

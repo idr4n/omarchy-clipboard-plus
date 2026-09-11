@@ -1,9 +1,18 @@
 # Clipboard discovery implementation plan
 
-Status: in progress; Task 1, the Links slice of Task 2, the filter-control slice of Task 3, and current-type/link presentation from Task 5 are complete. Remaining categories, result counts, search, and richer previews remain pending.
-Last updated: 2026-09-10
+Status: remaining discovery work stays queued; the prioritized actions feature is implemented, verified, and reviewed. Task 1, the Links slice of Task 2, the filter-control slice of Task 3, and current-type/link presentation from Task 5 are complete.
+Last updated: 2026-09-11
 Local branch: `feat/clipboard-discovery`
 Contract: [spec.md](spec.md)
+
+## Current priority
+
+The prioritized [searchable contextual actions feature](../clipboard-actions/plan.md)
+is implemented, verified, and reviewed by Fable with parent-verified fixes. Its scope
+includes `Ctrl+.`, action search, preview-first transformations, sorting, and
+derived color/link/image actions. The remaining tasks below stay queued with
+their existing acceptance criteria. They are neither canceled nor prerequisites
+for Actions; resume only the user's next requested slice.
 
 ## Delivery boundary
 
@@ -272,6 +281,8 @@ Task 1 completes color enrichment. Preserve the existing expanded view and edito
   packaged opener by history index; never fetch or embed remote content.
 - Editing/copying/pasting uses the original text, not formatted JSON or a rewritten
   URL. Existing action/write guards apply to the new preview control too.
+  The prioritized Actions feature exposes Open in browser in its menu; this task
+  adds the preview control using that same guarded dispatch, not another opener.
 
 **Verify**
 

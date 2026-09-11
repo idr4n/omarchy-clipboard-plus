@@ -645,6 +645,150 @@ function displayRows(preparedRows, query, limit, typeFilter) {
   return rows
 }
 
+function actionTextMatches(text, term) {
+  var offset = 0
+  for (var i = 0; i < term.length; i++) {
+    offset = text.indexOf(term.charAt(i), offset)
+    if (offset < 0) return false
+    offset++
+  }
+  return true
+}
+
+function filterActions(actions, query) {
+  var needle = String(query || "").trim().toLowerCase()
+  if (!needle) return actions
+  var terms = needle.split(/\s+/)
+  var matches = []
+  for (var i = 0; i < actions.length; i++) {
+    var action = actions[i]
+    var labels = [action.label.toLowerCase()]
+    var aliases = action.aliases || []
+    for (var j = 0; j < aliases.length; j++) labels.push(aliases[j].toLowerCase())
+    var matched = true
+    for (var t = 0; t < terms.length; t++) {
+      var found = false
+      for (var l = 0; l < labels.length; l++) {
+        if (actionTextMatches(labels[l], terms[t])) {
+          found = true
+          break
+        }
+      }
+      if (!found) {
+        matched = false
+        break
+      }
+    }
+    if (matched) matches.push(action)
+  }
+  return matches
+}
+
+var allowedTextTransforms = {
+  "trim-lines": true,
+  "trim-trailing": true,
+  "remove-leading-tabs": true,
+  "dedent": true,
+  "join-lines": true,
+  "remove-empty-lines": true,
+  "deduplicate-lines": true,
+  "sort-ascending": true,
+  "sort-descending": true,
+  "uppercase": true,
+  "lowercase": true
+}
+
+function dedentText(text) {
+  var parts = text.split(/(\r\n|[\r\n\u2028\u2029])/)
+  var prefix = null
+  for (var i = 0; i < parts.length; i += 2) {
+    var line = parts[i]
+    if (!/[^ \t]/.test(line)) continue
+    if (prefix === null) {
+      prefix = /^[ \t]*/.exec(line)[0]
+    } else {
+      var length = 0
+      while (length < prefix.length && prefix.charAt(length) === line.charAt(length)) length++
+      prefix = prefix.slice(0, length)
+    }
+    if (prefix.length === 0) return text
+  }
+  if (prefix === null) return text
+
+  for (var j = 0; j < parts.length; j += 2) {
+    if (/[^ \t]/.test(parts[j])) parts[j] = parts[j].slice(prefix.length)
+  }
+  return parts.join("")
+}
+
+function transformTextLines(text, actionId) {
+  var firstSeparator = /\r\n|[\r\n\u2028\u2029]/.exec(text)
+  var separator = firstSeparator ? firstSeparator[0] : "\n"
+  var lines = text.split(/\r\n|[\r\n\u2028\u2029]/)
+  var terminal = !!firstSeparator && lines[lines.length - 1] === ""
+  // A final terminator is not an extra line; earlier empty lines remain data.
+  if (terminal) lines.pop()
+
+  var i
+  if (actionId === "sort-ascending" || actionId === "sort-descending") {
+    var direction = actionId === "sort-ascending" ? 1 : -1
+    for (i = 0; i < lines.length; i++) {
+      lines[i] = { text: lines[i], key: lines[i].toLowerCase(), index: i }
+    }
+    lines.sort(function(left, right) {
+      if (left.key < right.key) return -direction
+      if (left.key > right.key) return direction
+      return left.index - right.index
+    })
+    for (i = 0; i < lines.length; i++) lines[i] = lines[i].text
+  } else {
+    var joinLines = actionId === "join-lines"
+    var removeEmpty = joinLines || actionId === "remove-empty-lines"
+    var seen = actionId === "deduplicate-lines" ? Object.create(null) : null
+    var kept = 0
+    for (i = 0; i < lines.length; i++) {
+      var line = lines[i]
+      if (joinLines) line = line.replace(/^[ \t]+|[ \t]+$/g, "")
+      if (removeEmpty && !/[^ \t]/.test(line)) continue
+      if (seen) {
+        if (seen[line]) continue
+        seen[line] = true
+      }
+      lines[kept++] = line
+    }
+    lines.length = kept
+  }
+
+  if (actionId === "join-lines") return lines.join(" ")
+  return lines.join(separator) + (terminal && lines.length > 0 ? separator : "")
+}
+
+function transformText(text, actionId) {
+  if (typeof text !== "string" || typeof actionId !== "string" || allowedTextTransforms[actionId] !== true)
+    return { status: "invalid" }
+  if (text.length > maxEntryTextLength) return { status: "oversized" }
+
+  var result
+  if (actionId === "trim-lines") {
+    result = text.replace(/^[ \t]+|[ \t]+$/gm, "")
+  } else if (actionId === "trim-trailing") {
+    result = text.replace(/[ \t]+$/gm, "")
+  } else if (actionId === "remove-leading-tabs") {
+    result = text.replace(/^\t+/gm, "")
+  } else if (actionId === "dedent") {
+    result = dedentText(text)
+  } else if (actionId === "uppercase") {
+    result = text.toUpperCase()
+  } else if (actionId === "lowercase") {
+    result = text.toLowerCase()
+  } else {
+    result = transformTextLines(text, actionId)
+  }
+
+  if (result.length > maxEntryTextLength) return { status: "oversized" }
+  return { status: "ok", text: result }
+}
+
 function findTextIndex(history, text) {
   var values = Array.isArray(history) ? history : []
   var target = String(text || "")
@@ -683,6 +827,8 @@ if (typeof module !== "undefined") {
     utf8ByteLength: utf8ByteLength,
     detectColor: detectColor,
     colorDetails: colorDetails,
+    filterActions: filterActions,
+    transformText: transformText,
     parseHistory: parseHistory,
     validateHistory: validateHistory,
     addEntry: addEntry,

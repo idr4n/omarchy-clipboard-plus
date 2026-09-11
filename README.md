@@ -1,10 +1,10 @@
 # Clipboard Plus
 
-A keyboard-first overlay for Omarchy Quattro's clipboard history, with type
-filters, large text and image previews, color swatches, and inline text
-editing.
+A keyboard-first clipboard history overlay for Omarchy Quattro. Search and filter
+entries, preview text and images, and use contextual actions to transform text,
+work with colors, or edit an image without changing the original.
 
-![Clipboard Plus overlay](preview.png)
+![Clipboard Plus with type filters, two-line history rows, and a color preview](preview.png)
 
 Clipboard Plus is a UI companion to Omarchy's built-in `omarchy.clipboard`
 plugin. It reads the same resident history and uses Omarchy's clipboard
@@ -18,7 +18,10 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 - Preview long text, images, and detected colors without leaving the overlay
 - Scan two-line rows with type icons, small color swatches, and image thumbnails
 - See link domains, word/line counts, file counts/directories, and image MIME types
-- Edit text before copying or pasting it
+- Edit, trim, deduplicate, sort, or change the case of text in a preview-first draft
+- Find contextual actions with `Ctrl+.` without changing the clipboard-history query
+- Copy colors as HEX, RGB(A), or HSL(A), or pick a screen color into a draft
+- Save an image copy or annotate a private duplicate in Tensaku
 - Paste, copy, open, remove, or clear history entries from the keyboard
 - Follow the active Omarchy theme through the shell's shared UI components
 
@@ -88,7 +91,9 @@ all numeric or all percentages; modern space notation permits mixed channels.
 - The built-in `omarchy.clipboard` plugin enabled, which is the Omarchy default
 - Omarchy's standard clipboard history and helper commands
 
-No additional packages, services, or background processes are required.
+No extra packages or persistent background services are required. Screen color
+picking uses Omarchy's bundled `hyprpicker`; image editing uses its bundled
+Tensaku editor. Image saving uses the system Python 3 standard library.
 
 ## Install
 
@@ -125,6 +130,62 @@ The overlay intentionally uses Omarchy's `omarchy-clipboard` layer-shell
 namespace so the stock no-animation rule also applies to Clipboard Plus. The
 plugin IDs remain separate; this only shares the compositor rule.
 
+## Actions menu
+
+Press `Ctrl+.` or click **Actions** to open a searchable menu for the selected
+entry. Type to match action names and aliases, case-insensitively, including fuzzy
+abbreviations such as `cpy` for Copy or `brw url` for Open in browser. Multiple
+terms must all match the same action. This search never changes the history query.
+
+![Searchable Actions menu with color commands and an overflow scroll indicator](preview-actions.png)
+
+The menu shows only applicable actions:
+
+- **Text:** trim lines or trailing whitespace, remove leading tabs, dedent, join
+  lines, remove empty or duplicate lines, sort ascending or descending, and change
+  case. Sorting is stable, case-insensitive, and lexicographic, not numeric.
+- **Colors:** copy HEX, RGB(A), or HSL(A), edit the expression, or pick a screen
+  color. The screen picker opens an editable draft without automatically copying.
+- **Links:** open in the browser or copy the domain.
+- **Images and single copied image files:** copy the image path, open its folder,
+  save an image copy, or edit a private copy in Tensaku.
+- **Common:** Paste, Copy, Edit text where supported, and a separated Remove
+  entry action. Oversized text retains only Paste, Copy, and Remove. File-URI lists
+  and image paths are not treated as prose for transformations.
+
+The popup stays inside the existing clipboard card without enlarging it, shows
+up to eight actions at once, and has a persistent scroll indicator only when
+there are more actions to scroll through.
+
+Use `Up` / `Down` or `Ctrl+J` / `Ctrl+K` to select an action, then `Enter` or a
+pointer click to run it. No matches means Enter does nothing. `Escape`, `Ctrl+.`,
+or a click outside the menu dismisses only Actions and preserves the previous
+view and query. Existing entry shortcuts resume when the menu is closed.
+
+Actions also opens from expanded previews and the text editor. Transformations
+preview the full retained text in the editor, chain on the current draft, and
+leave the original entry untouched. Only explicit Copy/Paste accepts the result
+into history. Existing input/output limits and write-confirmation guards apply;
+a blank transformed draft is editable but cannot be submitted. Dismissing Actions
+preserves the draft, text selection, cursor, and scroll.
+Source-entry menus close when history is replaced or a reload/write starts, so a
+stale menu cannot act on a different entry.
+
+Saving an image uses a local file dialog, retains its image extension, and never
+replaces an existing file. Tensaku receives a private duplicate, not the original;
+Enter exports through its normal clipboard workflow. Closing Clipboard Plus
+does not remove a duplicate still in use. Each editor session retains its own
+file until that editor exits, then cleans up only that session's temporary files.
+Picker, file-dialog, and editor actions release the overlay's keyboard grab.
+
+Image-copy saves require filesystem support for anonymous temporary files
+(`O_TMPFILE`) and hard links for atomic no-overwrite publication. FAT/exFAT and
+some FUSE/network destinations cannot provide these; the action fails rather
+than falling back to a potentially replacing operation.
+Disabling/reloading the plugin or restarting the shell while Tensaku is open can
+kill its worker and leave the private copy behind. Close the editor first for
+normal cleanup; ordinary closing of the clipboard window remains safe.
+
 ## Keyboard controls
 
 | Key | Action |
@@ -136,6 +197,7 @@ plugin IDs remain separate; this only shares the compositor rule.
 | `Shift+Enter` | Copy without pasting |
 | `Alt+Enter` | Open with Omarchy's clipboard opener |
 | `Ctrl+Space` | Open or close the expanded preview |
+| `Ctrl+.` | Open or close the searchable actions menu |
 | `Ctrl+E` | Edit the selected text entry |
 | `Ctrl+1` / `2` / `3` / `4` / `5` | Show all / text / links / images / colors |
 | `Ctrl+T` / `Ctrl+Shift+T` | Cycle filters forward / backward |
@@ -164,7 +226,7 @@ The plugin:
 - represents individual text entries over 1,048,576 code units as
   metadata-only rows that preserve their disk indices for paste, copy, and
   open while keeping their contents out of search, preview, and editing;
-- keeps plugin writes disabled while any oversized placeholder would remain;
+- keeps history writes disabled while any oversized placeholder would remain;
   the last one can be deleted directly, while multiple require clearing
   history or removing them with the stock clipboard manager;
 - caps aggregate retained text at 4,194,304 code units and rejects
@@ -197,13 +259,14 @@ omarchy plugin remove io.github.idr4n.clipboard-plus
 
 ## Development
 
-Run the manifest validator, QML linter, and model tests from the repository
-root:
+Run the manifest validator, QML linter, model tests, and image-worker tests from
+the repository root:
 
 ```sh
 omarchy plugin validate .
 qmllint -I "$OMARCHY_PATH/shell" Clipboard.qml
 node tests/clipboard-history.js
+bash tests/clipboard-files.sh
 ```
 
 Before releasing, also exercise open, close, paste, copy, edit, disable,
@@ -213,7 +276,8 @@ installation.
 ## Acknowledgements
 
 Clipboard Plus is derived from Omarchy's stock clipboard history model and
-overlay, then extended with filtering, expanded previews, and text editing.
+overlay, then extended with filtering, expanded previews, text editing, and
+contextual actions.
 The stock Omarchy clipboard
 [implementation](https://github.com/basecamp/omarchy/tree/quattro/shell/plugins/clipboard)
 is MIT-licensed; `LICENSE` retains its upstream copyright notice.
