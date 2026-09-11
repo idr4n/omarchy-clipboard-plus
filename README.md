@@ -4,7 +4,7 @@ A keyboard-first clipboard history overlay for Omarchy Quattro. Search and filte
 entries, preview text and images, and use contextual actions to transform text,
 work with colors, or edit an image without changing the original.
 
-![Clipboard Plus with type filters, two-line history rows, and a color preview](preview.png)
+![Clipboard Plus cover: the headline "Find it. Refine it. Paste it." beside the clipboard overlay with an image entry selected and its Actions menu open](preview.png)
 
 Clipboard Plus is a UI companion to Omarchy's built-in `omarchy.clipboard`
 plugin. It reads the same resident history and uses Omarchy's clipboard
@@ -24,6 +24,10 @@ helpers, so it does not start another `wl-paste` watcher or Quickshell process.
 - Save an image copy or annotate a private duplicate in Tensaku
 - Paste, copy, open, remove, or clear history entries from the keyboard
 - Follow the active Omarchy theme through the shell's shared UI components
+
+## Overview
+
+![Clipboard Plus with type filters, two-line history rows, and a color preview](preview-overview.png)
 
 ## Row details
 
